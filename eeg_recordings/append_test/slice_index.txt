@@ -1,0 +1,4 @@
+250
+SS-L|E:/EEG_GUI_OpenBCI/class_images/left_arrow.png|0,SS-R|E:/EEG_GUI_OpenBCI/class_images/right_arrow.png|1,SS-B|E:/EEG_GUI_OpenBCI/class_images/up_arrow.png|2,SS-S|E:/EEG_GUI_OpenBCI/class_images/down_arrow.png|3
+1,163,1413
+0,1386,2636
