@@ -1,0 +1,18 @@
+A general format specifying what data should be saved in the slice_index.txt -> the file which specifies how to slice the recorded
+data to the separate trials.
+
+row 1 -> sampling rate
+row 2 -> trial class objects, comma separated
+row 3 -> label,first sample index,last sample index
+.
+.
+.
+row m + 2 -> label,first sample index,last sample index
+
+Examples:
+250
+eyes open|{path_to_image}|0,eyes close|{path_to_image}|1
+0,0,500
+0,500,1000
+1,1000,1500
+1,1500,2000
