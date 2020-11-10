@@ -1,19 +1,19 @@
+import math
 import os.path
 import random
+import time
+from os import listdir
 
 import PyQt5.QtCore
 from PyQt5.QtCore import QTimer
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QFont
 from PyQt5.QtWidgets import QWidget, QApplication, QGridLayout, QMainWindow, QComboBox, \
 	QHBoxLayout, QLabel, QPushButton, QLineEdit, QFileDialog, QDialog, QSlider, QErrorMessage, QMessageBox
-from brainflow.board_shim import BoardIds, BoardShim, BrainFlowInputParams
+from brainflow.board_shim import BoardShim, BrainFlowInputParams
 from brainflow.data_filter import DataFilter
 
-from os import listdir
-
-import utils
-
 import global_config
+import utils
 
 
 class FileNameFormatter:
@@ -31,6 +31,32 @@ class FileNameFormatter:
 		return placeholder_str
 
 
+class FeedbackProvider:
+
+	image_paths = [
+		global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/checkmark.jpg",
+		global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/thumbs_up.png",
+		global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/thumbs_down.png"
+				   ]
+
+	proportions = [0.4, 0.4, 0.2]
+
+	def get_image(self) -> str:
+		d = random.random()
+
+		print(d)
+
+		sum = 0
+
+		for i in range(len(self.proportions)):
+			p = self.proportions[i]
+
+			if sum <= d < (sum + p):
+				return self.image_paths[i]
+
+			sum += p
+
+
 class TrialConfigurations:
 
 	DEFAULT_START_DELAY = 4
@@ -45,27 +71,33 @@ class TrialConfigurations:
 
 	DEFAULT_ROOT_DIRECTORY = ""
 
-	DEFAULT_RELAXATION_IMAGE = global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/circle.png"
-
 	def __init__(self, start_delay: int = DEFAULT_START_DELAY,
 					trial_duration: int = DEFAULT_TRIAL_DURATION,
 					repetitions: int = DEFAULT_REPETITIONS,
 					relaxation_period: int = DEFAULT_RELAXATION_PERIOD,
 					classes: [utils.TrialClass] = DEFAULT_CLASSES,
 					root_directory: str = DEFAULT_ROOT_DIRECTORY,
-					relaxation_image: str = DEFAULT_RELAXATION_IMAGE):
+					feedback_provider: FeedbackProvider = FeedbackProvider()):
 		self.start_delay = start_delay
 		self.trial_duration = trial_duration
 		self.repetitions = repetitions
 		self.relaxation_period = relaxation_period
 		self.classes = classes
 		self.root_directory = root_directory
-		self.relaxation_image = relaxation_image
+		self.feedback_provider = feedback_provider
 		self.overwrite_files = True
 		self.non_empty_root_directory = False
 
 	def validate_saving_info(self) -> bool:
 		return self.root_directory != "" and os.path.isdir(self.root_directory)
+
+	def eeg_data_path(self) -> str:
+		full_path = self.root_directory + "/" + global_config.EEG_DATA_FILE_NAME
+		return full_path
+
+	def slice_index_path(self) -> str:
+		full_path = self.root_directory + "/" + global_config.SLICE_INDEX_FILE_NAME
+		return full_path
 
 	def labels(self):
 		labels = []
@@ -201,6 +233,10 @@ class TrialConfigDialog(QDialog):
 					self.config.classes.append(available_class)
 
 		self.config.root_directory = self.root_directory_path_label.text()
+
+		if self.config.root_directory == "":
+			print("Please select a root directory")
+			return
 
 		content = listdir(self.config.root_directory)
 
@@ -388,14 +424,22 @@ class TrialConductor(QMainWindow):
 
 		self.root_layout.addWidget(self.button_bar_widget, 0, 0, 1, 5)
 
+		self.timer_label = QLabel("")
+		self.timer_label.setFont(QFont("Serif", 20))
+
+		self.timer_start_time = time.time()
+
+		self.timer_label.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
+		self.root_layout.addWidget(self.timer_label, 1, 0, 1, 5)
+
 		self.class_image_pixmap = QPixmap()
 		self.class_image_pixmap.load(self.HOME_IMAGE_PATH)
 
 		self.class_image_view = QLabel()
-		self.class_image_view.setScaledContents(True)
+		# self.class_image_view.setScaledContents(True)
 		self.class_image_view.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
 		self.class_image_view.setPixmap(self.class_image_pixmap)
-		self.root_layout.addWidget(self.class_image_view, 1, 0, 5, 5)
+		self.root_layout.addWidget(self.class_image_view, 2, 0, 5, 5)
 
 	def begin_trial(self):
 		if not self.running:
@@ -428,6 +472,9 @@ class TrialConductor(QMainWindow):
 		self.eeg_recording_timer.start(200)
 
 	def read_eeg_data(self):
+		seconds_since_start = time.time() - self.timer_start_time
+		seconds = math.floor(self.configurations.trial_duration + self.configurations.relaxation_period - seconds_since_start)
+		self.timer_label.setText("{} sec".format(seconds))
 		if self.board.get_board_data_count() > 0:
 			raw_data = self.board.get_board_data()
 			raw_eeg_data = utils.extract_eeg_data(raw_data, global_config.BOARD_ID)
@@ -479,10 +526,8 @@ class TrialConductor(QMainWindow):
 			return
 		self.destroy_timers()
 		self.create_timers()
-		print("Next class, count = {}".format(self.trial_count))
+		self.timer_start_time = time.time()
 		index = random.randrange(len(self.configurations.classes))
-
-		self.setWindowTitle("Trial {} out of {}".format(self.trial_count, self.configurations.repetitions))
 
 		self.slice_generator.add_slice(
 			self.configurations.labels()[index], self.sample_count,
@@ -492,6 +537,10 @@ class TrialConductor(QMainWindow):
 		self.class_image_pixmap.load(self.configurations.classes[index].image_path)
 		self.class_image_view.setPixmap(self.class_image_pixmap)
 		self.trial_count += 1
+
+		print("Next class, count = {}".format(self.trial_count))
+		self.setWindowTitle("Trial {} out of {}".format(self.trial_count, self.configurations.repetitions))
+
 		self.relaxation_timer.timeout.connect(self.show_relaxation_image)
 		self.relaxation_timer.start(self.configurations.trial_duration * 1000)
 
@@ -500,7 +549,7 @@ class TrialConductor(QMainWindow):
 		self.create_timers()
 		print("Relax")
 		QApplication.beep()
-		self.class_image_pixmap.load(self.configurations.relaxation_image)
+		self.class_image_pixmap.load(self.configurations.feedback_provider.get_image())
 		self.class_image_view.setPixmap(self.class_image_pixmap)
 		self.next_trial_timer.timeout.connect(self.next_class)
 		self.next_trial_timer.start(self.configurations.relaxation_period * 1000)
@@ -509,13 +558,18 @@ class TrialConductor(QMainWindow):
 		self.destroy_timers()
 		self.stop_eeg_recording()
 
-		self.slice_generator.write_to_file(self.configurations.root_directory)
+		self.timer_label.setText("Press Start")
+
+		append = not self.configurations.overwrite_files
+		self.slice_generator.write_to_file(self.configurations.root_directory, append=append)
 
 		self.class_image_pixmap.load(self.HOME_IMAGE_PATH)
 		self.class_image_view.setPixmap(self.class_image_pixmap)
 		self.terminate_trial_btn.setEnabled(False)
 		self.running = False
 		self.trial_count = 0
+		self.configurations.overwrite_files = False
+		self.configurations.non_empty_root_directory = True
 
 	def configure(self):
 		self.configurations = TrialConfigDialog(config=self.configurations).edit_config()
@@ -542,6 +596,22 @@ class TrialConductor(QMainWindow):
 					msg.exec()
 					self.sample_count = 0
 					self.configure()
+				else:  # Append files
+					self.sample_count = utils.obtain_last_trial_index_from_slice(self.configurations.root_directory)
+
+			else:  # Overwrite files
+				print("*" * 10 + "WARNING: OVERWRITING FILES" + "*"*10)
+
+				answer = input("Are you sure? (Y/N)")
+
+				if answer == "Y":
+					if os.path.exists(self.configurations.eeg_data_path()):
+						os.remove(self.configurations.eeg_data_path())
+
+					if os.path.exists(self.configurations.slice_index_path()):
+						os.remove(self.configurations.slice_index_path())
+				else:
+					print("Please select a different directory")
 
 
 def main():

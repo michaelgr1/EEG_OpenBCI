@@ -1,26 +1,17 @@
 import sys
 
-import numpy as np
 import pyqtgraph as pg
-
-import random
-
-import time
-
-import utils
-
 from PyQt5.QtChart import QChartView, QChart, QBarSet, QBarSeries, QBarCategoryAxis, QValueAxis
-
-from PyQt5.QtGui import QPainter
-
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget, QApplication, QCheckBox, QGridLayout, QMainWindow, QComboBox, QVBoxLayout,\
-	QHBoxLayout, QLabel, QPushButton, QColorDialog, QStackedLayout, QLineEdit, QSlider, QProgressDialog, QErrorMessage
 from PyQt5.QtCore import QTimer
-from brainflow.board_shim import BoardIds, BoardShim, BrainFlowInputParams, LogLevels
-from brainflow.data_filter import DataFilter, FilterTypes, WindowFunctions
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPainter
+from PyQt5.QtWidgets import QWidget, QApplication, QGridLayout, QMainWindow, QLabel, QPushButton, QFileDialog, QSlider, \
+	QProgressDialog, QErrorMessage
+from brainflow.board_shim import BoardShim, BrainFlowInputParams
+from brainflow.data_filter import DataFilter
 
 import global_config
+import utils
 
 
 class ResonanceFrequencyFinder(QMainWindow):
@@ -37,7 +28,7 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 	DEFAULT_MAX_FREQUENCY = 35
 
-	DEFAULT_FREQUENCY_STEP = 1
+	DEFAULT_FREQUENCY_STEP = 2
 
 	# Used to create a band for which the average frequency amplitude is computed
 	DEFAULT_FREQUENCY_PADDING = 0.2
@@ -82,6 +73,10 @@ class ResonanceFrequencyFinder(QMainWindow):
 		# self.window_size_combo_box = QComboBox()
 		# self.window_size_combo_box.addItems(self.AVAILABLE_WINDOW_SIZES)
 
+		self.root_directory_label = QLabel("Root Directory")
+		self.select_root_directory = QPushButton("Select/Change root directory")
+		self.select_root_directory.clicked.connect(self.pick_root_directory)
+
 		self.record_btn = QPushButton("Record")
 		self.record_btn.setEnabled(False)
 		self.record_btn.clicked.connect(self.record_clicked)
@@ -93,7 +88,9 @@ class ResonanceFrequencyFinder(QMainWindow):
 		# 	window_size_label, self.window_size_combo_box, self.record_btn
 		# ]), 1, 0, 1, 3)
 
-		self.root_layout.addWidget(utils.construct_horizontal_box([self.record_btn, self.record_reference_btn]), 1, 0, 1, 3)
+		self.root_layout.addWidget(utils.construct_horizontal_box([
+			self.record_btn, self.record_reference_btn, self.root_directory_label, self.select_root_directory
+		]), 1, 0, 1, 3)
 
 		self.current_freq_label = QLabel()
 
@@ -157,6 +154,10 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 	def update_freq_label(self):
 		self.current_freq_label.setText("Selected Frequency: {} Hz".format(self.frequency_slider.value()))
+
+	def pick_root_directory(self):
+		path = QFileDialog.getExistingDirectory(self, "Root Directory...")
+		self.root_directory_label.setText(path)
 
 	def record_clicked(self, reference: bool = False):
 		# selected_window_text = self.window_size_combo_box.currentText()
@@ -224,15 +225,15 @@ class ResonanceFrequencyFinder(QMainWindow):
 			raw_data = self.board.get_board_data()
 			raw_eeg_data = utils.extract_eeg_data(raw_data, global_config.BOARD_ID)
 
-			c3 = raw_eeg_data[self.DEFAULT_C3_CHANNEL_INDEX, :]
-			cz = raw_eeg_data[self.DEFAULT_CZ_CHANNEL_INDEX, :]
-			c4 = raw_eeg_data[self.DEFAULT_C4_CHANNEL_INDEX, :]
+			# c3 = raw_eeg_data[self.DEFAULT_C3_CHANNEL_INDEX, :]
+			# cz = raw_eeg_data[self.DEFAULT_CZ_CHANNEL_INDEX, :]
+			# c4 = raw_eeg_data[self.DEFAULT_C4_CHANNEL_INDEX, :]
 
 			if self.recording_reference:
-				self.reference_eeg_data.append_data(np.vstack((c3, cz, c4)))
+				self.reference_eeg_data.append_data(raw_eeg_data)
 				self.recording_progress_dialog.setValue(self.reference_eeg_data.get_channel_data(0).shape[0])
 			else:
-				self.eeg_data_buffer.append_data(np.vstack((c3, cz, c4)))
+				self.eeg_data_buffer.append_data(raw_eeg_data)
 				self.recording_progress_dialog.setValue(self.eeg_data_buffer.get_channel_data(0).shape[0])
 
 	def stop_recording(self, reference: bool = False):
@@ -245,6 +246,21 @@ class ResonanceFrequencyFinder(QMainWindow):
 		self.recording_progress_dialog.setValue(self.recording_progress_dialog.maximum())
 
 		QApplication.beep()
+
+		path = self.root_directory_label.text()
+
+		if path != "":
+			print("Saving Data")
+			file_name = path + "/"
+			if reference:
+				file_name += "reference.csv"
+			else:
+				file_name += "freq_"+self.frequency_slider.value()+".csv"
+
+			if reference:
+				DataFilter.write_file(self.reference_eeg_data.to_row_array(), file_name, "a")
+			else:
+				DataFilter.write_file(self.eeg_data_buffer.to_row_array(), file_name, "a")
 
 		if reference:
 			self.record_btn.setEnabled(True)
@@ -267,20 +283,20 @@ class ResonanceFrequencyFinder(QMainWindow):
 			freq_band = utils.FrequencyBand(
 				selected_frequency - self.DEFAULT_FREQUENCY_PADDING, selected_frequency + self.DEFAULT_FREQUENCY_PADDING)
 
-			c3_freq_amplitude = self.eeg_data_buffer.feature_extractor(0, global_config.SAMPLING_RATE).\
+			c3_freq_amplitude = self.eeg_data_buffer.feature_extractor(self.DEFAULT_C3_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
 				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
-			cz_freq_amplitude = self.eeg_data_buffer.feature_extractor(1, global_config.SAMPLING_RATE).\
+			cz_freq_amplitude = self.eeg_data_buffer.feature_extractor(self.DEFAULT_CZ_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
 				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
-			c4_freq_amplitude = self.eeg_data_buffer.feature_extractor(2, global_config.SAMPLING_RATE).\
-				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
-
-			c3_ref_freq = self.reference_eeg_data.feature_extractor(0, global_config.SAMPLING_RATE).\
+			c4_freq_amplitude = self.eeg_data_buffer.feature_extractor(self.DEFAULT_C4_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
 				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
 
-			cz_ref_freq = self.reference_eeg_data.feature_extractor(1, global_config.SAMPLING_RATE).\
+			c3_ref_freq = self.reference_eeg_data.feature_extractor(self.DEFAULT_C3_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
 				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
 
-			c4_ref_freq = self.reference_eeg_data.feature_extractor(2, global_config.SAMPLING_RATE).\
+			cz_ref_freq = self.reference_eeg_data.feature_extractor(self.DEFAULT_CZ_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
+				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+
+			c4_ref_freq = self.reference_eeg_data.feature_extractor(self.DEFAULT_C4_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
 				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
 
 			c3_amplitude_difference = c3_freq_amplitude - c3_ref_freq

@@ -1,19 +1,15 @@
+import math
 import sys
-from enum import Enum
 
-import numpy as np
 import PyQt5.QtCore
+import numpy as np
+import serial.tools.list_ports
+from PyQt5.QtChart import QValueAxis, QBarSet
 from PyQt5.QtWidgets import QWidget, QHBoxLayout
 from brainflow import BoardShim
 from brainflow.data_filter import DataFilter, WindowFunctions, FilterTypes
-from PyQt5.QtChart import QValueAxis, QBarSet
-
-import math
-
-import serial.tools.list_ports
 
 import global_config
-import statistics
 
 
 class AccumulatingAverage:
@@ -460,13 +456,13 @@ class TrialClass:
 
 
 class VibroTactileClasses:
-	LEFT_CLASS = TrialClass("SS-L", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/left_arrow.png", 0)
+	LEFT_CLASS = TrialClass("SS-L", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-L.png", 0)
 
-	RIGHT_CLASS = TrialClass("SS-R", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/right_arrow.png", 1)
+	RIGHT_CLASS = TrialClass("SS-R", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-R.png", 1)
 
-	BOTH_CLASS = TrialClass("SS-B", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/up_arrow.png", 2)
+	BOTH_CLASS = TrialClass("SS-B", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-B.png", 2)
 
-	NONE_CLASS = TrialClass("SS-S", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/down_arrow.png", 3)
+	NONE_CLASS = TrialClass("SS-S", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-S.png", 3)
 
 	ALL = [LEFT_CLASS, RIGHT_CLASS, BOTH_CLASS, NONE_CLASS]
 
@@ -508,16 +504,17 @@ class SliceIndexGenerator:
 		else:
 			print("Class label not in trial classes, ignoring...")
 
-	def write_to_file(self, root_directory_path: str, mode: str = "a"):
-		with open(root_directory_path + f"/{global_config.SLICE_INDEX_FILE_NAME}", mode) as file:
-			file.write(f"{self.sampling_rate}\n")
+	def write_to_file(self, root_directory_path: str, append: bool = False):
 
-			for trial_class in self.trial_classes:
-				if trial_class is not self.trial_classes[-1]:
-					file.write(f"{trial_class_as_string(trial_class)},")
-				else:
-					file.write(f"{trial_class_as_string(trial_class)}")
-			file.write("\n")
+		with open(root_directory_path + f"/{global_config.SLICE_INDEX_FILE_NAME}", "a") as file:
+			if not append:
+				file.write(f"{self.sampling_rate}\n")
+				for trial_class in self.trial_classes:
+					if trial_class is not self.trial_classes[-1]:
+						file.write(f"{trial_class_as_string(trial_class)},")
+					else:
+						file.write(f"{trial_class_as_string(trial_class)}")
+				file.write("\n")
 
 			for slice_tuple in self.slices:
 				file.write(f"{slice_tuple[0]},{slice_tuple[1]},{slice_tuple[2]}\n")
