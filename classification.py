@@ -1,19 +1,12 @@
-import statistics
-import sys
-
-from matplotlib import pyplot as plt
 import numpy as np
-import math
-from brainflow.data_filter import DataFilter, FilterTypes
-from brainflow.board_shim import BoardShim, BoardIds
-
-from data import is_vector
-import utils
-
-from data import DataSubSetType, DataSet
-
 from sklearn import svm
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+
+import statistics
+import utils
+from data import DataSubSetType, DataSet
+from data import is_vector
+
 
 def one_versus_rest_labels(labels: np.ndarray, label: float) -> np.ndarray:
     """
