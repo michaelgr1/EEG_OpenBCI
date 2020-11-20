@@ -35,6 +35,9 @@ def shifted_sigmoid(z: np.ndarray, shift: float):
     return 1 / (1 + np.exp(-(z - shift)))
 
 
+# TODO: Add a save and reconstruct option for all classifiers
+
+
 class LogisticRegressionClassifier:
     NAME = "logistic_regression"
 

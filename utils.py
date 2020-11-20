@@ -1,9 +1,8 @@
-import math
-import sys
-
 import PyQt5.QtCore
+import math
 import numpy as np
 import serial.tools.list_ports
+import sys
 from PyQt5.QtChart import QValueAxis, QBarSet
 from PyQt5.QtWidgets import QWidget, QHBoxLayout
 from brainflow import BoardShim
@@ -216,6 +215,7 @@ class FeatureExtractor:
 
 				window_data = self.channel_data[start_index:end_index]
 
+				# TODO: Find out whether a window function should be used
 				amplitudes = abs(DataFilter.perform_fft(window_data[:window_length], WindowFunctions.NO_WINDOW.value))
 				amplitudes = amplitudes * (1 / window_length)
 				fft_average.add_values(amplitudes)
