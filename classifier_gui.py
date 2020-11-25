@@ -203,6 +203,13 @@ class ClassifierTrainer(QMainWindow):
 			self.extract_features_btn, self.shuffle_data_set, self.train_classifier_btn, self.test_classifier_btn
 		]), 15, 0, 1, 3)
 
+		self.performance_report_btn = QPushButton("Performance Report")
+		self.performance_report_btn.clicked.connect(self.generate_performance_report)
+
+		self.root_layout.addWidget(utils.construct_horizontal_box([
+			self.performance_report_btn
+		]), 16, 0, 1, 3)
+
 	def set_feature_scaling_type(self, feature_scaling_type: data.FeatureScalingType):
 		self.selected_feature_scaling_type = feature_scaling_type
 		print("Setting selected feature scaling type to {}".format(feature_scaling_type))
@@ -317,14 +324,8 @@ class ClassifierTrainer(QMainWindow):
 		else:
 			print("*"*10 + "Using existing feature matrix, re-extract if changes were made" + "*"*10)
 
-		accuracy_threshold = 1.0
-		regularization_param = 1.0
-
-		if utils.is_float(self.accuracy_threshold_edit.text()):
-			accuracy_threshold = float(self.accuracy_threshold_edit.text())
-
-		if utils.is_float(self.regularization_edit.text()):
-			regularization_param = float(self.regularization_edit.text())
+		accuracy_threshold = self.get_accuracy_threshold()
+		regularization_param = self.get_regularization_param()
 
 		selected_classifier = self.classifier_type_combo.currentText()
 
@@ -349,11 +350,7 @@ class ClassifierTrainer(QMainWindow):
 			print("Cross validation accuracy = {}".format(classifier.test_set_accuracy()))
 		elif selected_classifier == classification.KNearestNeighborsClassifier.NAME:
 
-			k_value = 5
-			if utils.is_integer(self.k_value_edit.text()):
-				k_value = int(self.k_value_edit.text())
-				if k_value <= 0:
-					k_value = 1
+			k_value = self.get_k_value()
 
 			print("Using K value of {}".format(k_value))
 
@@ -402,6 +399,88 @@ class ClassifierTrainer(QMainWindow):
 			# TODO: Learning curves
 
 		self.root_directory_changed = False
+
+	def generate_performance_report(self):
+		feature_matrix = self.data_set.raw_feature_matrix()
+		labels = self.data_set.feature_matrix_labels()
+
+		# Logistic Regression
+		cls1 = classification.LogisticRegressionClassifier(feature_matrix, labels, shuffle=False)
+		cls1.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls1.train(accuracy_threshold=self.get_accuracy_threshold())
+
+		# KNN
+		k_value = self.get_k_value()
+		print("Using K value of {}".format(k_value))
+
+		cls2 = classification.KNearestNeighborsClassifier(feature_matrix, labels, k_value, shuffle=False)
+		cls2.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+
+		# Perceptron
+		cls3 = classification.PerceptronClassifier(feature_matrix, labels, shuffle=False)
+		cls3.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls3.train(accuracy_threshold=self.get_accuracy_threshold())
+
+		# SVM
+		cls4 = classification.SvmClassifier(feature_matrix, labels, self.get_regularization_param(), shuffle=False)
+		cls4.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls4.train()
+
+		# LDA
+		cls5 = classification.LdaClassifier(feature_matrix, labels, shuffle=False)
+		cls5.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls5.train()
+
+		# Get performance measure from each
+		prm1 = cls1.performance_measure()
+		prm2 = cls2.performance_measure()
+		prm3 = cls3.performance_measure()
+		prm4 = cls4.performance_measure()
+		prm5 = cls5.performance_measure()
+
+		plot_data = np.vstack((
+			prm1.as_row_array(),
+			prm2.as_row_array(),
+			prm3.as_row_array(),
+			prm4.as_row_array(),
+			prm5.as_row_array()
+		))
+
+		plot_data = np.transpose(plot_data)
+
+		x = np.arange(5)
+
+		plt.bar(x + 0.0, plot_data[0], width=0.25, label="Training Accuracy")
+		plt.bar(x + 0.25, plot_data[1], width=0.25, label="Cross Validation Accuracy")
+		plt.bar(x + 0.5, plot_data[2], width=0.25, label="Testing Accuracy")
+
+		plt.xticks(x + 0.125, ("Logistic Regression", "kNN", "Perceptron", "SVM", "LDA"))
+		plt.ylabel("Accuracy %")
+
+		plt.legend(loc="best")
+		plt.title("Classifiers' Accuracy")
+
+		plt.show()
+
+	def get_k_value(self) -> int:
+		k_value = 5
+		if utils.is_integer(self.k_value_edit.text()):
+			k_value = int(self.k_value_edit.text())
+			if k_value <= 0:
+				k_value = 1
+		return k_value
+
+	def get_accuracy_threshold(self) -> float:
+		accuracy_threshold = 1
+		if utils.is_float(self.accuracy_threshold_edit.text()):
+			accuracy_threshold = float(self.accuracy_threshold_edit.text())
+		return accuracy_threshold
+
+	def get_regularization_param(self) -> float:
+		c = 1.0
+		if utils.is_float(self.regularization_edit.text()):
+			c = float(self.regularization_edit.text())
+		return c
 
 	def test_classifier_clicked(self):
 		if self.classifier is not None and self.filter_settings is not None and self.feature_extraction_info is not None\
