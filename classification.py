@@ -2,6 +2,7 @@ import numpy as np
 from sklearn import svm
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 
+import performance
 import statistics
 import utils
 from data import DataSubSetType, DataSet
@@ -177,6 +178,13 @@ class LogisticRegressionClassifier:
             self.classify(self.data_set.get_training_set(), raw=False), self.data_set.training_set_labels
         )
 
+    def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
+        return performance.ClassifierPerformanceMeasure(
+            self.training_set_accuracy(),
+            self.cross_validation_accuracy(),
+            self.test_set_accuracy()
+        )
+
 
 class KNearestNeighborsClassifier:
     NAME = "k_nearest_neighbors"
@@ -342,6 +350,13 @@ class KNearestNeighborsClassifier:
             k = self.default_k_value
         return classification_accuracy(self.classify(self.data_set.get_training_set(), k, raw=False),
                                        self.data_set.training_set_labels)
+
+    def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
+        return performance.ClassifierPerformanceMeasure(
+            self.training_set_accuracy(),
+            self.cross_validation_accuracy(),
+            self.test_set_accuracy()
+        )
 
 
 class NeuralNetworkStructure:
@@ -578,6 +593,13 @@ class PerceptronClassifier:
             self.classify(self.data_set.get_training_set(), False), self.data_set.training_set_labels
         )
 
+    def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
+        return performance.ClassifierPerformanceMeasure(
+            self.training_set_accuracy(),
+            self.cross_validation_accuracy(),
+            self.test_set_accuracy()
+        )
+
 
 class SvmClassifier:
     NAME = "svm"
@@ -601,6 +623,13 @@ class SvmClassifier:
     def cross_validation_accuracy(self) -> float:
         return self.classifier.score(self.data_set.get_cross_validation_set(), self.data_set.cross_validation_labels.flatten())
 
+    def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
+        return performance.ClassifierPerformanceMeasure(
+            self.training_set_accuracy(),
+            self.cross_validation_accuracy(),
+            self.test_set_accuracy()
+        )
+
 
 class LdaClassifier:
     NAME = "lda"
@@ -623,6 +652,13 @@ class LdaClassifier:
 
     def cross_validation_accuracy(self) -> float:
         return self.classifier.score(self.data_set.get_cross_validation_set(), self.data_set.cross_validation_labels.flatten())
+
+    def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
+        return performance.ClassifierPerformanceMeasure(
+            self.training_set_accuracy(),
+            self.cross_validation_accuracy(),
+            self.test_set_accuracy()
+        )
 
 
 class LabelTranslator:
