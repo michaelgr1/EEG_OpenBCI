@@ -42,11 +42,11 @@ class LogisticRegressionClassifier:
     NAME = "logistic_regression"
 
     def __init__(self, data_matrix: np.ndarray, labels: np.ndarray,
-                 positive_label: float = 1, negative_label: float = 0):
+                 positive_label: float = 1, negative_label: float = 0, shuffle: bool = True):
         self.sub_classifiers = {}
         self.unique_labels = np.unique(labels)
 
-        self.data_set = DataSet(data_matrix, labels, add_x0=True, shuffle=True)
+        self.data_set = DataSet(data_matrix, labels, add_x0=True, shuffle=shuffle)
 
         if self.unique_labels.shape[0] > 2:  # OVR
             self.multi_class = True
@@ -181,12 +181,12 @@ class LogisticRegressionClassifier:
 class KNearestNeighborsClassifier:
     NAME = "k_nearest_neighbors"
 
-    def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, k: int):
+    def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, k: int, shuffle: bool = True):
         self.unique_labels = np.unique(labels)
 
         self.default_k_value = k
 
-        self.data_set = DataSet(data_matrix, labels, add_x0=False, shuffle=True)
+        self.data_set = DataSet(data_matrix, labels, add_x0=False, shuffle=shuffle)
 
     def distances_list_from(self, x: np.ndarray, raw: bool = True):
         """
@@ -380,7 +380,8 @@ class NeuralNetworkStructure:
 class PerceptronClassifier:
     NAME = "perceptron"
 
-    def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, positive_label: float = +1, negative_label: float = -1):
+    def __init__(self, data_matrix: np.ndarray, labels: np.ndarray,
+                 positive_label: float = +1, negative_label: float = -1, shuffle: bool = True):
         """
         Initializes a new perceptron classifier. The classifier can be either binary or not and use OVR strategy.
         The data set is a matrix with data as rows and features as columns.
@@ -404,7 +405,7 @@ class PerceptronClassifier:
 
         self.sub_classifiers = {}
 
-        self.data_set = DataSet(data_matrix, labels, add_x0=True, shuffle=True)
+        self.data_set = DataSet(data_matrix, labels, add_x0=True, shuffle=shuffle)
 
         # Feature count
         self.n = self.data_set.feature_count()
@@ -581,8 +582,8 @@ class PerceptronClassifier:
 class SvmClassifier:
     NAME = "svm"
 
-    def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, regularization: float = 1):
-        self.data_set = DataSet(data_matrix, labels, add_x0=False, shuffle=True)
+    def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, regularization: float = 1, shuffle: bool = True):
+        self.data_set = DataSet(data_matrix, labels, add_x0=False, shuffle=shuffle)
         self.classifier = svm.LinearSVC(C=regularization, max_iter=100000)
 
     def train(self):
@@ -604,8 +605,8 @@ class SvmClassifier:
 class LdaClassifier:
     NAME = "lda"
 
-    def __init__(self, data_matrix: np.ndarray, labels: np.ndarray):
-        self.data_set = DataSet(data_matrix, labels, add_x0=False, shuffle=True)
+    def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, shuffle: bool = True):
+        self.data_set = DataSet(data_matrix, labels, add_x0=False, shuffle=shuffle)
         self.classifier = LDA()
 
     def train(self):

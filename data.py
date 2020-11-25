@@ -1,7 +1,8 @@
+import math
 from enum import Enum
 
 import numpy as np
-import math
+
 import statistics as stats
 
 DEFAULT_TRAINING_SPLIT = 0.6
@@ -308,6 +309,12 @@ class DataSet:
 				return append_x0(scaled_data)
 			else:
 				return scaled_data
+
+	def raw_feature_matrix(self):
+		return np.vstack((self.raw_training_set, self.raw_cross_validation_set, self.raw_test_set))
+
+	def feature_matrix_labels(self):
+		return np.vstack((self.training_set_labels, self.cross_validation_labels, self.test_set_labels))
 
 	def append_to(self, data: np.ndarray, labels: np.ndarray, target: DataSubSetType):
 		"""

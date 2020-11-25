@@ -1,26 +1,22 @@
+import random
 import sys
 
 import PyQt5.QtCore
-from PyQt5.QtCore import Qt
 import matplotlib.pyplot as plt
 import numpy as np
 from PyQt5 import QtGui
 from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QWidget, QApplication, QCheckBox, QGridLayout, QMainWindow, QComboBox, QLabel, QPushButton, \
 	QLineEdit, QFileDialog, QHBoxLayout, QPlainTextEdit, QGroupBox, QRadioButton
-from brainflow.board_shim import BoardIds, BoardShim, BrainFlowInputParams
-
-from brainflow.data_filter import DataFilter
+from brainflow.board_shim import BoardShim, BrainFlowInputParams
 
 import classification
 import data
-from data import DataSet, DataSubSetType
-import utils
-
-import random
-
 import global_config
+import utils
+from data import DataSet
 
 AVAILABLE_CLASSIFIERS = [
 	classification.LogisticRegressionClassifier.NAME,
@@ -42,6 +38,8 @@ FFT_WINDOW_SIZES = \
 
 
 class ClassifierTrainer(QMainWindow):
+
+	data_set: DataSet
 
 	def __init__(self):
 		super().__init__()
@@ -192,28 +190,28 @@ class ClassifierTrainer(QMainWindow):
 		self.root_layout.addWidget(classifier_type_label, 14, 0, 1, 1)
 		self.root_layout.addWidget(self.classifier_type_combo, 14, 1, 1, 1)
 
+		self.extract_features_btn = QPushButton("Extract Features")
+		self.extract_features_btn.clicked.connect(self.extract_features_clicked)
+		self.shuffle_data_set = QPushButton("Shuffle DataSet")
+		self.shuffle_data_set.clicked.connect(self.shuffle_data_set_clicked)
 		self.train_classifier_btn = QPushButton("Train Classifier")
 		self.train_classifier_btn.clicked.connect(self.train_classifier_clicked)
 		self.test_classifier_btn = QPushButton("Test Classifier")
 		self.test_classifier_btn.clicked.connect(self.test_classifier_clicked)
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
-			self.train_classifier_btn, self.test_classifier_btn
+			self.extract_features_btn, self.shuffle_data_set, self.train_classifier_btn, self.test_classifier_btn
 		]), 15, 0, 1, 3)
 
 	def set_feature_scaling_type(self, feature_scaling_type: data.FeatureScalingType):
 		self.selected_feature_scaling_type = feature_scaling_type
 		print("Setting selected feature scaling type to {}".format(feature_scaling_type))
 
-	def train_classifier_clicked(self):
-		print("train classifier clicked")
-
+	def extract_features_clicked(self):
 		# Construct filter settings to loaded data.
 
 		bandpass_min = -1
 		bandpass_max = -1
-		accuracy_threshold = 1.0
-		regularization_param = 1.0
 
 		notch_filter = self.notch_filter_checkbox.isChecked()
 
@@ -222,12 +220,6 @@ class ClassifierTrainer(QMainWindow):
 
 		if utils.is_float(self.bandpass_max_edit.text()):
 			bandpass_max = float(self.bandpass_max_edit.text())
-
-		if utils.is_float(self.accuracy_threshold_edit.text()):
-			accuracy_threshold = float(self.accuracy_threshold_edit.text())
-
-		if utils.is_float(self.regularization_edit.text()):
-			regularization_param = float(self.regularization_edit.text())
 
 		filter_settings = utils.FilterSettings(global_config.SAMPLING_RATE, bandpass_min, bandpass_max, notch_filter)
 
@@ -307,13 +299,41 @@ class ClassifierTrainer(QMainWindow):
 
 		feature_matrix = data.construct_feature_matrix(extracted_data)
 
+		self.data_set = DataSet(feature_matrix, labels, add_x0=False, shuffle=True)
+
 		print("Features extracted successfully...")
+
+	def shuffle_data_set_clicked(self):
+		if self.data_set is not None:
+			self.data_set = \
+				DataSet(self.data_set.raw_feature_matrix(), self.data_set.feature_matrix_labels(), False, True)
+			print("Data set shuffled!!!")
+
+	def train_classifier_clicked(self):
+		print("train classifier clicked")
+
+		if self.data_set is None:
+			self.extract_features_clicked()
+		else:
+			print("*"*10 + "Using existing feature matrix, re-extract if changes were made" + "*"*10)
+
+		accuracy_threshold = 1.0
+		regularization_param = 1.0
+
+		if utils.is_float(self.accuracy_threshold_edit.text()):
+			accuracy_threshold = float(self.accuracy_threshold_edit.text())
+
+		if utils.is_float(self.regularization_edit.text()):
+			regularization_param = float(self.regularization_edit.text())
 
 		selected_classifier = self.classifier_type_combo.currentText()
 
+		feature_matrix = self.data_set.raw_feature_matrix()
+		labels = self.data_set.feature_matrix_labels()
+
 		# Train Classifier
 		if selected_classifier == classification.LogisticRegressionClassifier.NAME:
-			classifier = classification.LogisticRegressionClassifier(feature_matrix, labels)
+			classifier = classification.LogisticRegressionClassifier(feature_matrix, labels, shuffle=False)
 			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 			cost = classifier.train(accuracy_threshold=accuracy_threshold)
@@ -337,7 +357,7 @@ class ClassifierTrainer(QMainWindow):
 
 			print("Using K value of {}".format(k_value))
 
-			classifier = classification.KNearestNeighborsClassifier(feature_matrix, labels, k_value)
+			classifier = classification.KNearestNeighborsClassifier(feature_matrix, labels, k_value, shuffle=False)
 			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 
@@ -352,7 +372,7 @@ class ClassifierTrainer(QMainWindow):
 			plt.title("Accuracy graph for K values")
 			plt.show()
 		elif selected_classifier == classification.PerceptronClassifier.NAME:
-			classifier = classification.PerceptronClassifier(feature_matrix, labels)
+			classifier = classification.PerceptronClassifier(feature_matrix, labels, shuffle=False)
 			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 			classifier.train(accuracy_threshold=accuracy_threshold)
@@ -361,7 +381,7 @@ class ClassifierTrainer(QMainWindow):
 			print("Perceptron test set accuracy = {}".format(classifier.test_set_accuracy()))
 			print("Perceptron Cross validation accuracy = {}".format(classifier.cross_validation_accuracy()))
 		elif selected_classifier == classification.SvmClassifier.NAME:
-			classifier = classification.SvmClassifier(feature_matrix, labels, regularization_param)
+			classifier = classification.SvmClassifier(feature_matrix, labels, regularization_param, shuffle=False)
 			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 			classifier.train()
@@ -370,7 +390,7 @@ class ClassifierTrainer(QMainWindow):
 			print("SVM test set accuracy = {}".format(classifier.test_set_accuracy()))
 			print("SVM cross validation accuracy = {}".format(classifier.cross_validation_accuracy()))
 		elif selected_classifier == classification.LdaClassifier.NAME:
-			classifier = classification.LdaClassifier(feature_matrix, labels)
+			classifier = classification.LdaClassifier(feature_matrix, labels, shuffle=False)
 			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 			classifier.train()
