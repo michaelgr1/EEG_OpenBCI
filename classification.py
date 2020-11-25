@@ -185,6 +185,32 @@ class LogisticRegressionClassifier:
             self.test_set_accuracy()
         )
 
+    def error_description(self) -> performance.ClassifierErrorDescription:
+        total_error_count = 0
+
+        class_errors = {}
+
+        for set_type in DataSubSetType:
+            for i in range(self.data_set.sample_count(set_type)):
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type))
+                actual_label = self.data_set.label_at(i, set_type)
+                if predicted_label != actual_label:  # Incorrect Prediction
+                    if actual_label in class_errors.keys():
+                        class_errors[actual_label] += 1
+                    else:
+                        class_errors[actual_label] = 1
+
+                    total_error_count += 1
+
+        class_labels = []  # TODO: Add a converter from numerical labels to text labels
+        class_errors_percent = []
+
+        for label in class_errors.keys():
+            class_labels.append(str(label))
+            class_errors_percent.append(class_errors[label] / total_error_count * 100)
+
+        return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
+
 
 class KNearestNeighborsClassifier:
     NAME = "k_nearest_neighbors"
@@ -357,6 +383,32 @@ class KNearestNeighborsClassifier:
             self.cross_validation_accuracy(),
             self.test_set_accuracy()
         )
+
+    def error_description(self) -> performance.ClassifierErrorDescription:
+        total_error_count = 0
+
+        class_errors = {}
+
+        for set_type in DataSubSetType:
+            for i in range(self.data_set.sample_count(set_type)):
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type))
+                actual_label = self.data_set.label_at(i, set_type)
+                if predicted_label != actual_label:  # Incorrect Prediction
+                    if actual_label in class_errors.keys():
+                        class_errors[actual_label] += 1
+                    else:
+                        class_errors[actual_label] = 1
+
+                    total_error_count += 1
+
+        class_labels = []  # TODO: Add a converter from numerical labels to text labels
+        class_errors_percent = []
+
+        for label in class_errors.keys():
+            class_labels.append(str(label))
+            class_errors_percent.append(class_errors[label] / total_error_count * 100)
+
+        return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
 
 
 class NeuralNetworkStructure:
@@ -600,6 +652,32 @@ class PerceptronClassifier:
             self.test_set_accuracy()
         )
 
+    def error_description(self) -> performance.ClassifierErrorDescription:
+        total_error_count = 0
+
+        class_errors = {}
+
+        for set_type in DataSubSetType:
+            for i in range(self.data_set.sample_count(set_type)):
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type))
+                actual_label = self.data_set.label_at(i, set_type)
+                if predicted_label != actual_label:  # Incorrect Prediction
+                    if actual_label in class_errors.keys():
+                        class_errors[actual_label] += 1
+                    else:
+                        class_errors[actual_label] = 1
+
+                    total_error_count += 1
+
+        class_labels = []  # TODO: Add a converter from numerical labels to text labels
+        class_errors_percent = []
+
+        for label in class_errors.keys():
+            class_labels.append(str(label))
+            class_errors_percent.append(class_errors[label] / total_error_count * 100)
+
+        return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
+
 
 class SvmClassifier:
     NAME = "svm"
@@ -630,6 +708,32 @@ class SvmClassifier:
             self.test_set_accuracy()
         )
 
+    def error_description(self) -> performance.ClassifierErrorDescription:
+        total_error_count = 0
+
+        class_errors = {}
+
+        for set_type in DataSubSetType:
+            for i in range(self.data_set.sample_count(set_type)):
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type))
+                actual_label = self.data_set.label_at(i, set_type)
+                if predicted_label != actual_label:  # Incorrect Prediction
+                    if actual_label in class_errors.keys():
+                        class_errors[actual_label] += 1
+                    else:
+                        class_errors[actual_label] = 1
+
+                    total_error_count += 1
+
+        class_labels = []  # TODO: Add a converter from numerical labels to text labels
+        class_errors_percent = []
+
+        for label in class_errors.keys():
+            class_labels.append(str(label))
+            class_errors_percent.append(class_errors[label] / total_error_count * 100)
+
+        return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
+
 
 class LdaClassifier:
     NAME = "lda"
@@ -659,6 +763,32 @@ class LdaClassifier:
             self.cross_validation_accuracy(),
             self.test_set_accuracy()
         )
+
+    def error_description(self) -> performance.ClassifierErrorDescription:
+        total_error_count = 0
+
+        class_errors = {}
+
+        for set_type in DataSubSetType:
+            for i in range(self.data_set.sample_count(set_type)):
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type))
+                actual_label = self.data_set.label_at(i, set_type)
+                if predicted_label != actual_label:  # Incorrect Prediction
+                    if actual_label in class_errors.keys():
+                        class_errors[actual_label] += 1
+                    else:
+                        class_errors[actual_label] = 1
+
+                    total_error_count += 1
+
+        class_labels = []  # TODO: Add a converter from numerical labels to text labels
+        class_errors_percent = []
+
+        for label in class_errors.keys():
+            class_labels.append(str(label))
+            class_errors_percent.append(class_errors[label] / total_error_count * 100)
+
+        return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
 
 
 class LabelTranslator:

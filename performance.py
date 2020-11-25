@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class ClassifierPerformanceMeasure:
 
 	def __init__(self, train_accuracy: float, crsv_accuracy: float, test_accuracy: float):
@@ -11,3 +12,10 @@ class ClassifierPerformanceMeasure:
 		return np.array([
 			[self.train_accuracy, self.crsv_accuracy, self.test_accuracy]
 		])
+
+
+class ClassifierErrorDescription:
+
+	def __init__(self, class_labels: [str], error_percent: [float]):
+		self.class_labels = class_labels
+		self.error_percent = error_percent

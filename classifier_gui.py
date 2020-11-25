@@ -462,6 +462,10 @@ class ClassifierTrainer(QMainWindow):
 
 		plt.show()
 
+	def generate_error_descriptions(self):
+		# TODO: Implement
+		pass
+
 	def get_k_value(self) -> int:
 		k_value = 5
 		if utils.is_integer(self.k_value_edit.text()):
