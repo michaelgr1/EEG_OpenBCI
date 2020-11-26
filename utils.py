@@ -1,8 +1,10 @@
-import PyQt5.QtCore
 import math
+import sys
+from enum import Enum
+
+import PyQt5.QtCore
 import numpy as np
 import serial.tools.list_ports
-import sys
 from PyQt5.QtChart import QValueAxis, QBarSet
 from PyQt5.QtWidgets import QWidget, QHBoxLayout
 from brainflow import BoardShim
@@ -441,12 +443,20 @@ class FeatureExtractionInfo:
 		self.last_channel = last_channel
 
 
+class Direction(Enum):
+	LEFT = 0
+	RIGHT = 1
+	FORWARD = 2
+	BACKWARD = 3
+
+
 class TrialClass:
 
-	def __init__(self, name: str, image_path: str, label: int):
+	def __init__(self, name: str, image_path: str, label: int, direction: Direction):
 		self.name = name
 		self.image_path = image_path
 		self.label = label
+		self.direction = direction
 
 	def __eq__(self, other):
 		if type(other) == TrialClass:
@@ -456,13 +466,21 @@ class TrialClass:
 
 
 class VibroTactileClasses:
-	LEFT_CLASS = TrialClass("SS-L", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-L.png", 0)
+	LEFT_CLASS = TrialClass(
+		"SS-L", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-L.png", 0, Direction.LEFT
+	)
 
-	RIGHT_CLASS = TrialClass("SS-R", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-R.png", 1)
+	RIGHT_CLASS = TrialClass(
+		"SS-R", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-R.png", 1, Direction.RIGHT
+	)
 
-	BOTH_CLASS = TrialClass("SS-B", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-B.png", 2)
+	BOTH_CLASS = TrialClass(
+		"SS-B", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-B.png", 2, Direction.FORWARD
+	)
 
-	NONE_CLASS = TrialClass("SS-S", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-S.png", 3)
+	NONE_CLASS = TrialClass(
+		"SS-S", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/SS-S.png", 3, Direction.BACKWARD
+	)
 
 	ALL = [LEFT_CLASS, RIGHT_CLASS, BOTH_CLASS, NONE_CLASS]
 
@@ -470,19 +488,19 @@ class VibroTactileClasses:
 class AlphaRhythmClasses:
 
 	OPENED_EYES_CLASS = \
-		TrialClass("Opened Eyes", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/eyes/eyes_opened.jpg", 0)
+		TrialClass("Opened Eyes", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/eyes/eyes_opened.jpg", 0, Direction.FORWARD)
 
 	CLOSED_EYES_CLASS = \
-		TrialClass("Closed Eyes", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/eyes/eyes_closed.jpg", 1)
+		TrialClass("Closed Eyes", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/eyes/eyes_closed.jpg", 1, Direction.BACKWARD)
 
 	ALL = [OPENED_EYES_CLASS, CLOSED_EYES_CLASS]
 
 
 class SsvepClasses:
 
-	LEFT_LED = TrialClass("Left LED", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/left_arrow.png", 0)
+	LEFT_LED = TrialClass("Left LED", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/left_arrow.png", 0, Direction.LEFT)
 
-	RIGHT_LED = TrialClass("Right LED", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/right_arrow.png", 1)
+	RIGHT_LED = TrialClass("Right LED", global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/right_arrow.png", 1, Direction.RIGHT)
 
 	ALL = [LEFT_LED, RIGHT_LED]
 
@@ -855,9 +873,9 @@ def cyton_port() -> str:
 
 
 def trial_class_as_string(trial_class: TrialClass) -> str:
-	return f"{trial_class.name}|{trial_class.image_path}|{trial_class.label}"
+	return f"{trial_class.name}|{trial_class.image_path}|{trial_class.label}|{trial_class.direction}"
 
 
 def trial_class_from_string(string: str) -> TrialClass:
 	items = string.split("|")
-	return TrialClass(items[0], items[1], int(items[2]))
+	return TrialClass(items[0], items[1], int(items[2]), Direction(int(items[3])))

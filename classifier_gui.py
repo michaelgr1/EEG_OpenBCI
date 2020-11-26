@@ -647,6 +647,8 @@ class OnlineClassifierGui(QMainWindow):
 
 	EV3_MAC_ADDRESS = "00:16:53:4f:bd:54"
 
+	DEFAULT_ROBOT_SPEED = 10
+
 	def __init__(self, classifier, filter_settings: utils.FilterSettings,
 				feature_extraction_info: utils.FeatureExtractionInfo,
 				feature_types: [],
@@ -692,7 +694,12 @@ class OnlineClassifierGui(QMainWindow):
 
 		self.robot_connect_btn = QPushButton("Connect to EV3")
 		self.robot_connect_btn.clicked.connect(self.connect_clicked)
+
+		self.manual_control_checkbox = QCheckBox("Manual Control")
+
 		self.ev3 = ev3.EV3(self.EV3_MAC_ADDRESS)
+		self.motor_control = ev3.MotorControl(1, 8, self.ev3)
+		self.previous_direction = None
 
 		self.previous_test_set_accuracy = 0.0
 		self.previous_cross_validation_accuracy = 0.0
@@ -702,7 +709,7 @@ class OnlineClassifierGui(QMainWindow):
 			QLabel("Repetition Interval (sec): "), self.repetition_interval_edit,
 			QLabel("Detection Threshold: "), self.detection_threshold_edit,
 			self.online_training_checkbox,
-			self.robot_connect_btn
+			self.robot_connect_btn, self.manual_control_checkbox
 		]), 1, 0, 1, 3)
 
 		self.start_btn = QPushButton("Start Streaming")
@@ -768,6 +775,18 @@ class OnlineClassifierGui(QMainWindow):
 
 	def connect_clicked(self):
 		self.ev3.connect()
+
+	def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+		print("key pressed")
+		if self.manual_control_checkbox.isChecked():
+			if event.key() == Qt.Key_A:
+				self.motor_control.turn_left_from_middle(90, self.DEFAULT_ROBOT_SPEED)
+			elif event.key() == Qt.Key_D:
+				self.motor_control.turn_right_from_middle(90, self.DEFAULT_ROBOT_SPEED)
+			elif event.key() == Qt.Key_W:
+				self.motor_control.forward(self.DEFAULT_ROBOT_SPEED)
+			elif event.key() == Qt.Key_S:
+				self.motor_control.backward(self.DEFAULT_ROBOT_SPEED)
 
 	def start_clicked(self):
 
@@ -923,6 +942,8 @@ class OnlineClassifierGui(QMainWindow):
 
 		print(f"label = {label}")
 
+		direction = None
+
 		if label != -sys.maxsize:
 
 			# if online_training:
@@ -943,9 +964,23 @@ class OnlineClassifierGui(QMainWindow):
 			for trial_class in self.trial_classes:
 				if trial_class.label == label:
 					path = trial_class.image_path
+					direction = trial_class.direction
 					break
 			self.class_pixmap = QPixmap(path).scaledToHeight(self.CLASS_IMAGE_HEIGHT, Qt.FastTransformation)
 			self.class_label.setPixmap(self.class_pixmap)
+
+			if direction == utils.Direction.LEFT:
+				self.motor_control.turn_left_from_middle(90, self.DEFAULT_ROBOT_SPEED)
+				print("left")
+			elif direction == utils.Direction.RIGHT:
+				self.motor_control.turn_right_from_middle(90, self.DEFAULT_ROBOT_SPEED)
+				print("right")
+			elif direction == utils.Direction.FORWARD:
+				self.motor_control.forward(self.DEFAULT_ROBOT_SPEED)
+				print("forward")
+			elif direction == utils.Direction.BACKWARD:
+				self.motor_control.backward(self.DEFAULT_ROBOT_SPEED)
+				print("backward")
 
 	def next_mental_task(self):
 		self.current_mental_task = self.random_class()
