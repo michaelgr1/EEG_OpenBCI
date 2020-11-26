@@ -291,6 +291,9 @@ class DataSet:
 		elif subset_type == DataSubSetType.TESTING:
 			return self.test_set_labels[index, 0]
 
+	def unique_labels(self):
+		return np.unique(self.feature_matrix_labels())
+
 	def process_data(self, data: np.ndarray) -> np.ndarray:
 		"""
 			Applies feature scaling and adds x0 if necessary

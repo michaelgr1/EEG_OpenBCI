@@ -14,6 +14,7 @@ from brainflow.board_shim import BoardShim, BrainFlowInputParams
 
 import classification
 import data
+import ev3
 import global_config
 import utils
 from data import DataSet
@@ -206,8 +207,11 @@ class ClassifierTrainer(QMainWindow):
 		self.performance_report_btn = QPushButton("Performance Report")
 		self.performance_report_btn.clicked.connect(self.generate_performance_report)
 
+		self.error_description_btn = QPushButton("Error Description")
+		self.error_description_btn.clicked.connect(self.generate_error_descriptions)
+
 		self.root_layout.addWidget(utils.construct_horizontal_box([
-			self.performance_report_btn
+			self.performance_report_btn, self.error_description_btn
 		]), 16, 0, 1, 3)
 
 	def set_feature_scaling_type(self, feature_scaling_type: data.FeatureScalingType):
@@ -450,6 +454,8 @@ class ClassifierTrainer(QMainWindow):
 
 		x = np.arange(5)
 
+		plt.title("Classifiers' Accuracy")
+
 		plt.bar(x + 0.0, plot_data[0], width=0.25, label="Training Accuracy")
 		plt.bar(x + 0.25, plot_data[1], width=0.25, label="Cross Validation Accuracy")
 		plt.bar(x + 0.5, plot_data[2], width=0.25, label="Testing Accuracy")
@@ -458,13 +464,79 @@ class ClassifierTrainer(QMainWindow):
 		plt.ylabel("Accuracy %")
 
 		plt.legend(loc="best")
-		plt.title("Classifiers' Accuracy")
 
 		plt.show()
 
 	def generate_error_descriptions(self):
-		# TODO: Implement
-		pass
+		# TODO: Fix the error description method in all the classifiers. Problem with sample size and shape.
+		feature_matrix = self.data_set.raw_feature_matrix()
+		labels = self.data_set.feature_matrix_labels()
+
+		# Logistic Regression
+		cls1 = classification.LogisticRegressionClassifier(feature_matrix, labels, shuffle=False)
+		cls1.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls1.train(accuracy_threshold=self.get_accuracy_threshold())
+
+		# KNN
+		k_value = self.get_k_value()
+		print("Using K value of {}".format(k_value))
+
+		cls2 = classification.KNearestNeighborsClassifier(feature_matrix, labels, k_value, shuffle=False)
+		cls2.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+
+		# Perceptron
+		cls3 = classification.PerceptronClassifier(feature_matrix, labels, shuffle=False)
+		cls3.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls3.train(accuracy_threshold=self.get_accuracy_threshold())
+
+		# SVM
+		cls4 = classification.SvmClassifier(feature_matrix, labels, self.get_regularization_param(), shuffle=False)
+		cls4.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls4.train()
+
+		# LDA
+		cls5 = classification.LdaClassifier(feature_matrix, labels, shuffle=False)
+		cls5.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls5.train()
+
+		errd1 = cls1.error_description()
+		errd2 = cls2.error_description()
+		errd3 = cls3.error_description()
+		errd4 = cls4.error_description()
+		errd5 = cls5.error_description()
+
+		unique_labels = self.data_set.unique_labels().flatten()
+		text_labels = []
+
+		for label in unique_labels:
+			for trial_class in self.trial_classes:
+				if trial_class.label == label:
+					text_labels.append(trial_class.name)
+
+		label_count = unique_labels.size
+
+		plot_data = np.vstack((
+			errd1.as_row_array(),
+			errd2.as_row_array(),
+			errd3.as_row_array(),
+			errd4.as_row_array(),
+			errd5.as_row_array()
+		))
+
+		plot_data = plot_data.transpose()
+
+		x = np.arange(5)
+
+		plt.title("Error Description")
+
+		for i in range(label_count):
+			plt.bar(x + 0.25 * i, plot_data[i], width=0.25, label=text_labels[i])
+
+		plt.xticks(x + 0.125, ("Logistic Regression", "kNN", "Perceptron", "SVM", "LDA"))
+		plt.ylabel("Error Percent")
+
+		plt.legend(loc="best")
+		plt.show()
 
 	def get_k_value(self) -> int:
 		k_value = 5
@@ -573,6 +645,8 @@ class OnlineClassifierGui(QMainWindow):
 
 	MENTAL_TASK_DELAY = 4000
 
+	EV3_MAC_ADDRESS = "00:16:53:4f:bd:54"
+
 	def __init__(self, classifier, filter_settings: utils.FilterSettings,
 				feature_extraction_info: utils.FeatureExtractionInfo,
 				feature_types: [],
@@ -616,6 +690,10 @@ class OnlineClassifierGui(QMainWindow):
 		self.online_training_checkbox = QCheckBox("Online Training")
 		self.online_training = False
 
+		self.robot_connect_btn = QPushButton("Connect to EV3")
+		self.robot_connect_btn.clicked.connect(self.connect_clicked)
+		self.ev3 = ev3.EV3(self.EV3_MAC_ADDRESS)
+
 		self.previous_test_set_accuracy = 0.0
 		self.previous_cross_validation_accuracy = 0.0
 
@@ -623,7 +701,8 @@ class OnlineClassifierGui(QMainWindow):
 			QLabel("Feature Window Size (sec): "), self.feature_window_edit,
 			QLabel("Repetition Interval (sec): "), self.repetition_interval_edit,
 			QLabel("Detection Threshold: "), self.detection_threshold_edit,
-			self.online_training_checkbox
+			self.online_training_checkbox,
+			self.robot_connect_btn
 		]), 1, 0, 1, 3)
 
 		self.start_btn = QPushButton("Start Streaming")
@@ -686,6 +765,9 @@ class OnlineClassifierGui(QMainWindow):
 				int(self.feature_extraction_info.last_channel - self.feature_extraction_info.first_channel + 1),
 				int(self.INTERNAL_BUFFER_EXTRA_SIZE + self.config.feature_window_size * self.feature_extraction_info.sampling_rate)
 		), dtype=float)
+
+	def connect_clicked(self):
+		self.ev3.connect()
 
 	def start_clicked(self):
 

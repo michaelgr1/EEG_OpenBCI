@@ -19,3 +19,7 @@ class ClassifierErrorDescription:
 	def __init__(self, class_labels: [str], error_percent: [float]):
 		self.class_labels = class_labels
 		self.error_percent = error_percent
+
+	def as_row_array(self):
+		arr = np.array(self.error_percent).reshape((1, -1))
+		return arr

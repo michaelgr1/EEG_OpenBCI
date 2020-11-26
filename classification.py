@@ -192,7 +192,7 @@ class LogisticRegressionClassifier:
 
         for set_type in DataSubSetType:
             for i in range(self.data_set.sample_count(set_type)):
-                predicted_label = self.classify(self.data_set.sample_at(i, set_type))
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type), raw=False)[0]
                 actual_label = self.data_set.label_at(i, set_type)
                 if predicted_label != actual_label:  # Incorrect Prediction
                     if actual_label in class_errors.keys():
@@ -391,7 +391,7 @@ class KNearestNeighborsClassifier:
 
         for set_type in DataSubSetType:
             for i in range(self.data_set.sample_count(set_type)):
-                predicted_label = self.classify(self.data_set.sample_at(i, set_type))
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type).reshape((-1, 1)), raw=False)
                 actual_label = self.data_set.label_at(i, set_type)
                 if predicted_label != actual_label:  # Incorrect Prediction
                     if actual_label in class_errors.keys():
@@ -534,7 +534,8 @@ class PerceptronClassifier:
                     print("Accuracy threshold reached...")
                     break
                 else:
-                    print("More training is required, error count = {}".format(miss_classification_count))
+                    pass
+                    # print("More training is required, error count = {}".format(miss_classification_count))
 
             print("Training over")
 
@@ -659,7 +660,7 @@ class PerceptronClassifier:
 
         for set_type in DataSubSetType:
             for i in range(self.data_set.sample_count(set_type)):
-                predicted_label = self.classify(self.data_set.sample_at(i, set_type))
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type), raw=False)[0]
                 actual_label = self.data_set.label_at(i, set_type)
                 if predicted_label != actual_label:  # Incorrect Prediction
                     if actual_label in class_errors.keys():
@@ -715,7 +716,7 @@ class SvmClassifier:
 
         for set_type in DataSubSetType:
             for i in range(self.data_set.sample_count(set_type)):
-                predicted_label = self.classify(self.data_set.sample_at(i, set_type))
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type).reshape((1, -1)))[0]
                 actual_label = self.data_set.label_at(i, set_type)
                 if predicted_label != actual_label:  # Incorrect Prediction
                     if actual_label in class_errors.keys():
@@ -771,7 +772,7 @@ class LdaClassifier:
 
         for set_type in DataSubSetType:
             for i in range(self.data_set.sample_count(set_type)):
-                predicted_label = self.classify(self.data_set.sample_at(i, set_type))
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type).reshape((1, -1)))[0]
                 actual_label = self.data_set.label_at(i, set_type)
                 if predicted_label != actual_label:  # Incorrect Prediction
                     if actual_label in class_errors.keys():
