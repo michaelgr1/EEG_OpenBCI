@@ -1,4 +1,5 @@
-import binascii
+import math
+
 import bluetooth
 
 import numerical
@@ -9,6 +10,24 @@ import numerical
 #
 
 
+class EV3:
+
+    def __init__(self, mac_address: str):
+        self.socket = bluetooth.BluetoothSocket()
+        self.mac_address = mac_address
+
+    def connect(self):
+        self.socket.connect((self.mac_address, 1))
+
+    def disconnect(self):
+        self.socket.close()
+
+    def send_direct_command(self, command: bytearray):
+        self.socket.send(bytes(command))
+
+    def receive_reply(self, size: int):
+        return self.socket.recv(size)
+
 class Constants:
     DIRECT_COMMAND_REPLY = 0x00
     DIRECT_COMMAND_NO_REPLY = 0x80
@@ -16,14 +35,23 @@ class Constants:
     LC1 = 0x81
     LC2 = 0x82
     LC3 = 0x83
+    LC4 = 0x84
+
+
+def lc0(value: int) -> bytearray:
+    hex = numerical.to_hex(value, 2)
+    if len(hex) > 2:
+        print("Value too big for LC0")
+        return bytearray()
+    result = bytearray()
+    result.append(int(hex, 16))
+    return result
 
 
 def lc1(value: int, label: bool = True) -> bytearray:
-    hex = numerical.to_hex(value)
-    if len(hex) < 2:
-        hex = "0" + hex
-    elif len(hex) > 2:
-        print("Value to big for LC1")
+    hex = numerical.to_hex(value, 2)
+    if len(hex) > 2:
+        print("Value too big for LC1")
         return bytearray()
     result = bytearray()
     if label:
@@ -33,12 +61,9 @@ def lc1(value: int, label: bool = True) -> bytearray:
 
 
 def lc2(value: int, label: bool = True) -> bytearray:
-    hex = numerical.to_hex(value)
+    hex = numerical.to_hex(value, length=4)
 
-    if len(hex) < 4:
-        while len(hex) < 4:
-            hex = "0" + hex
-    elif len(hex) > 4:
+    if len(hex) > 4:
         print("Value to big for LC2")
         return bytearray()
 
@@ -53,6 +78,32 @@ def lc2(value: int, label: bool = True) -> bytearray:
     result = bytearray()
     if label:
         result.append(Constants.LC2)
+
+    # Add reversed bytes (little endian)
+    for byte_string in byte_strings:
+        result.append(int(byte_string, 16))
+
+    return result
+
+
+def lc4(value: int, label: bool = True) -> bytearray:
+    hex = numerical.to_hex(value, length=8)
+
+    if len(hex) > 8:
+        print("Value to big for LC4")
+        return bytearray()
+
+    # Split into byte strings
+    byte_strings = []
+
+    for i in range(0, len(hex), 2):
+        byte_strings.append(hex[i:i+2])
+
+    byte_strings.reverse()
+
+    result = bytearray()
+    if label:
+        result.append(Constants.LC4)
 
     # Add reversed bytes (little endian)
     for byte_string in byte_strings:
@@ -308,9 +359,12 @@ class OperationOutputPolarity(Command):
         # polarity - Data8 [-1, 0, 1] -1 backward, 0 opposite, 1 forward
         self.bytes.clear()
         self.bytes.append(self.OP_CODE)
-        append_all(self.bytes, lc1(layer))
-        append_all(self.bytes, lc1(output))
-        append_all(self.bytes, lc1(polarity))
+        append_all(self.bytes, lc0(layer))
+        append_all(self.bytes, lc0(output))
+        append_all(self.bytes, lc0(polarity))
+
+    def get_bytearray(self):
+        return self.bytes
 
 
 class OperationOutputTimeSpeed(Command):
@@ -337,9 +391,203 @@ class OperationOutputTimeSpeed(Command):
 
         self.bytes.clear()
         self.bytes.append(self.OP_CODE)
-        append_all(self.bytes, lc1(layer))
-        append_all(self.bytes, lc1(output))
-        # TODO: negative numbers
+        append_all(self.bytes, lc0(layer))
+        append_all(self.bytes, lc0(output))
+        append_all(self.bytes, lc1(speed))  # TODO: Negative speed
+        append_all(self.bytes, lc4(step1))
+        append_all(self.bytes, lc4(step2))
+        append_all(self.bytes, lc4(step3))
+        append_all(self.bytes, lc0(brake))
+
+    def get_bytearray(self):
+        return self.bytes
+
+
+class OperationOutputStepSpeed(Command):
+
+    OP_CODE = 0XAE
+
+    def __init__(self):
+        self.bytes = bytearray()
+
+    def output_step_speed(self, layer: int, output: int, speed: int, step1: int, step2: int, step3: int, brake: int):
+        self.bytes.clear()
+        self.bytes.append(self.OP_CODE)
+        append_all(self.bytes, lc0(layer))
+        append_all(self.bytes, lc0(output))
+        append_all(self.bytes, lc1(speed))
+        append_all(self.bytes, lc2(step1))
+        append_all(self.bytes, lc2(step2))
+        append_all(self.bytes, lc2(step3))
+        append_all(self.bytes, lc0(brake))
+
+    def get_bytearray(self):
+        return self.bytes
+
+
+class OperationOutputStop(Command):
+
+    OP_CODE = 0XA3
+
+    def __init__(self):
+        self.bytes = bytearray()
+
+    def output_stop(self, layer: int, output: int, brake: int):
+        self.bytes.clear()
+        self.bytes.append(self.OP_CODE)
+        append_all(self.bytes, lc0(layer))
+        append_all(self.bytes, lc0(output))
+        append_all(self.bytes, lc0(brake))
+
+    def get_bytearray(self):
+        return self.bytes
+
+
+class OperationOutputStepSync(Command):
+
+    OP_CODE = 0XB0
+
+    def __init__(self):
+        self.bytes = bytearray()
+
+    def output_step_sync(self, layer: int, output: int, speed: int, turn: int, step: int, brake: int):
+        self.bytes.clear()
+        self.bytes.append(self.OP_CODE)
+        append_all(self.bytes, lc0(layer))
+        append_all(self.bytes, lc0(output))
+        append_all(self.bytes, lc1(speed))
+        append_all(self.bytes, lc2(turn))
+        append_all(self.bytes, lc2(step))
+        append_all(self.bytes, lc0(brake))
+
+    def get_bytearray(self):
+        return self.bytes
+
+
+class MotorControl:
+
+    CAR_RADIUS = 12
+    CAR_MIDDLE_RADIUS = 6
+
+    def __init__(self, left_motor: int, right_motor: int, robot: EV3):
+        self.left_motor = left_motor
+        self.right_motor = right_motor
+        self.output = left_motor + right_motor
+        self.robot = robot
+
+    def forward(self, speed: int):
+        builder = CommandBuilder()
+        command = OperationOutputStepSync()
+        command.output_step_sync(0, self.output, speed, 0, 0, 1)
+        builder.append_command(command)
+        self.robot.send_direct_command(builder.build(False, 0, 0))
+
+    def backward(self, speed):
+        self.forward(255 - speed)
+
+    def stop(self):
+        builder = CommandBuilder()
+        command = OperationOutputStop()
+        command.output_stop(0, self.output, 1)
+        builder.append_command(command)
+        self.robot.send_direct_command(builder.build(False, 0, 0))
+
+    def turn_left(self, degrees: int, speed: int):
+        self.stop()
+        turn_degrees = self.wheel_turn_degrees(degrees, self.CAR_RADIUS)
+
+        print(turn_degrees)
+
+        # Turning left, right motor is moving
+        builder = CommandBuilder()
+        command = OperationOutputStepSync()
+
+        turn = 0
+        if self.right_motor < self.left_motor:
+            turn = 100
+        else:
+            turn = math.pow(2, 16) - 100
+
+        turn = int(turn)
+
+        command.output_step_sync(0, self.output, speed, turn, turn_degrees, 1)
+        builder.append_command(command)
+        self.robot.send_direct_command(builder.build(False, 0, 0))
+
+    def turn_left_from_middle(self, degrees: int, speed: int):
+        self.stop()
+        turn_degrees = self.wheel_turn_degrees(degrees, self.CAR_MIDDLE_RADIUS)
+
+        print(turn_degrees)
+
+        # Turning left, right motor is moving
+        builder = CommandBuilder()
+        command = OperationOutputStepSync()
+
+        turn = 0
+        if self.right_motor < self.left_motor:
+            turn = 200
+        else:
+            turn = math.pow(2, 16) - 200
+
+        turn = int(turn)
+
+        command.output_step_sync(0, self.output, speed, turn, turn_degrees, 1)
+        builder.append_command(command)
+        self.robot.send_direct_command(builder.build(False, 0, 0))
+
+    def turn_right(self, degrees: int, speed: int):
+        self.stop()
+        turn_degrees = self.wheel_turn_degrees(degrees, self.CAR_RADIUS)
+
+        print(turn_degrees)
+
+        # Turning right, left motor is moving
+        builder = CommandBuilder()
+        command = OperationOutputStepSync()
+
+        turn = 0
+        if self.left_motor < self.right_motor:
+            turn = 100
+        else:
+            turn = math.pow(2, 16) - 100
+
+        turn = int(turn)
+
+        command.output_step_sync(0, self.output, speed, turn, turn_degrees, 1)
+        builder.append_command(command)
+        self.robot.send_direct_command(builder.build(False, 0, 0))
+
+    def turn_right_from_middle(self, degrees: int, speed: int):
+        self.stop()
+        turn_degrees = self.wheel_turn_degrees(degrees, self.CAR_MIDDLE_RADIUS)
+
+        print(turn_degrees)
+
+        # Turning left, right motor is moving
+        builder = CommandBuilder()
+        command = OperationOutputStepSync()
+
+        turn = 0
+        if self.left_motor < self.right_motor:
+            turn = 200
+        else:
+            turn = math.pow(2, 16) - 200
+
+        turn = int(turn)
+
+        command.output_step_sync(0, self.output, speed, turn, turn_degrees, 1)
+        builder.append_command(command)
+        self.robot.send_direct_command(builder.build(False, 0, 0))
+
+    @staticmethod
+    def wheel_turn_degrees(rotation_degrees, radius) -> int:
+        wheel_circumference = 4 * math.pi
+        arc_length = radius * math.radians(rotation_degrees)
+        wheel_turns = arc_length / wheel_circumference
+
+        turn_degrees = int(wheel_turns * 360)
+        return turn_degrees
 
 
 class CommandBuilder:
@@ -349,6 +597,9 @@ class CommandBuilder:
 
     def append_command(self, command: Command):
         append_all(self.bytes, command.get_bytearray())
+
+    def clear(self):
+        self.bytes.clear()
 
     def build(self, reply: bool = False, message_counter: int = 0, mem_size: int = 0) -> bytearray:
         final_command = bytearray()
@@ -374,22 +625,3 @@ class CommandBuilder:
 
         append_all(final_command, self.bytes)
         return final_command
-
-
-class EV3:
-
-    def __init__(self, mac_address: str):
-        self.socket = bluetooth.BluetoothSocket()
-        self.mac_address = mac_address
-
-    def connect(self):
-        self.socket.connect((self.mac_address, 1))
-
-    def disconnect(self):
-        self.socket.close()
-
-    def send_direct_command(self, command: bytearray):
-        self.socket.send(bytes(command))
-
-    def receive_reply(self, size: int):
-        return self.socket.recv(size)

@@ -1,9 +1,6 @@
-import binascii
-import bluetooth
 import time
 
 import ev3
-import numerical
 
 MAC_ADDRESS = "00:16:53:4f:bd:54"
 
@@ -74,33 +71,57 @@ robot.connect()
 # robot.send_direct_command(stop_cmd)
 
 builder = ev3.CommandBuilder()
-draw = ev3.OperationDraw()
 
-draw.fill_window(False, 0, 0)
-builder.append_command(draw)
+# draw = ev3.OperationDraw()
+#
+# draw.fill_window(False, 0, 0)
+# builder.append_command(draw)
+#
+# draw.draw_line(True, 0, 0, 177, 127)
+# builder.append_command(draw)
+#
+# draw.draw_circle(True, 50, 50, 10)
+# builder.append_command(draw)
+#
+# draw.draw_circle(True, 100, 100, 20)
+# builder.append_command(draw)
+#
+# draw.fill_rect(True, 0, 60, 100, 20)
+# builder.append_command(draw)
+#
+# draw.fill_circle(True, 130, 50, 20)
+# builder.append_command(draw)
+#
+# draw.update()
+# builder.append_command(draw)
+#
+# draw_cmd = builder.build(message_counter=0)
+#
+# print(binascii.hexlify(draw_cmd))
+#
+# robot.send_direct_command(draw_cmd)
 
-draw.draw_line(True, 0, 0, 177, 127)
-builder.append_command(draw)
+motor = ev3.MotorControl(1, 8, robot)
 
-draw.draw_circle(True, 50, 50, 10)
-builder.append_command(draw)
+# motor.forward(20)
+# time.sleep(2)
 
-draw.draw_circle(True, 100, 100, 20)
-builder.append_command(draw)
+# motor.backward(10)
+# time.sleep(2)
 
-draw.fill_rect(True, 0, 60, 100, 20)
-builder.append_command(draw)
+# motor.forward(10)
+# time.sleep(2)
 
-draw.fill_circle(True, 130, 50, 20)
-builder.append_command(draw)
+motor.turn_left_from_middle(180, 10)
+time.sleep(10)
 
-draw.update()
-builder.append_command(draw)
+motor.turn_right_from_middle(180, 10)
+time.sleep(10)
 
-draw_cmd = builder.build(message_counter=0)
+# motor.turn_right(180, 20)
+# time.sleep(5)
 
-print(binascii.hexlify(draw_cmd))
+motor.stop()
 
-robot.send_direct_command(draw_cmd)
 
 robot.disconnect()
