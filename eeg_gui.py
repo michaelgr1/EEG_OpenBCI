@@ -1,22 +1,19 @@
+import PyQt5.QtCore
 import numpy as np
 import pyqtgraph as pg
-
-import utils
-from utils import AccumulatingAverage
-
-import trial_gui
-
-import PyQt5.QtCore
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPainter
-from PyQt5.QtWidgets import QWidget, QApplication, QCheckBox, QGridLayout, QMainWindow, QComboBox, QVBoxLayout,\
-	QHBoxLayout, QLabel, QPushButton, QColorDialog, QStackedLayout, QLineEdit, QFileDialog
 from PyQt5.QtChart import QChartView, QChart, QBarCategoryAxis, QValueAxis, QBarSeries, QBarSet
 from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPainter
+from PyQt5.QtWidgets import QWidget, QApplication, QCheckBox, QGridLayout, QMainWindow, QComboBox, QVBoxLayout, \
+	QHBoxLayout, QLabel, QPushButton, QColorDialog, QStackedLayout, QLineEdit, QFileDialog
 from brainflow.board_shim import BoardIds, BoardShim, BrainFlowInputParams, LogLevels
 from brainflow.data_filter import DataFilter, FilterTypes, WindowFunctions
 
 import global_config
+import trial_gui
+import utils
+from utils import AccumulatingAverage
 
 FFT_WINDOW_SIZES = \
 	[
@@ -285,7 +282,7 @@ class FrequencyGraph(QWidget):
 		self.plot_widget.getPlotItem().setLabel(axis="bottom", text="Frequency (Hz)")
 		self.plot_widget.getPlotItem().setLabel(axis="left", text="Amplitude")
 		self.plot_widget.getPlotItem().setLabel(axis="top", text="Frequency Domain")
-		self.plot_widget.setXRange(min=0, max=100)
+		self.plot_widget.setXRange(min=0, max=40)
 
 		self.root_layout = QStackedLayout()
 		self.setLayout(self.root_layout)
@@ -488,7 +485,7 @@ class MainWindow(QMainWindow):
 		for i in range(channel_count):
 			title = "Channel {}".format(i + 1)
 			self.channels.append(EegChannel(pen_color=colors[i], title=title, show_controls=(i == 0)))
-			row += i // 2
+			row = channels_baseline + i // 2
 			column = i % 2
 			self.main_layout.addWidget(self.channels[i], row, column)
 
@@ -609,7 +606,7 @@ def main():
 	pg.setConfigOption('background', 'w')
 	pg.setConfigOption('foreground', 'k')
 
-	window = MainWindow(app, board=board, screen_width=app.primaryScreen().size().width(), channel_count=3)
+	window = MainWindow(app, board=board, screen_width=app.primaryScreen().size().width(), channel_count=5)
 	window.show()
 
 	board.prepare_session()
