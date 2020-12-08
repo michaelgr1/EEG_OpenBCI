@@ -14,6 +14,7 @@ from brainflow.board_shim import BoardShim, BrainFlowInputParams
 
 import classification
 import data
+# import ev3
 import ev3
 import global_config
 import utils
@@ -24,7 +25,8 @@ AVAILABLE_CLASSIFIERS = [
 	classification.KNearestNeighborsClassifier.NAME,
 	classification.PerceptronClassifier.NAME,
 	classification.SvmClassifier.NAME,
-	classification.LdaClassifier.NAME
+	classification.LdaClassifier.NAME,
+	classification.ANNClassifier.NAME
 ]
 
 
@@ -401,6 +403,15 @@ class ClassifierTrainer(QMainWindow):
 			print("LDA cross validation accuracy = {}".format(classifier.cross_validation_accuracy()))
 
 			# TODO: Learning curves
+		elif selected_classifier == classification.ANNClassifier.NAME:
+			classifier = classification.ANNClassifier(feature_matrix, labels, shuffle=False)
+			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+			self.classifier = classifier
+			classifier.train()
+
+			print("MLP training set accuracy = {}".format(classifier.training_set_accuracy()))
+			print("MLP test set accuracy = {}".format(classifier.test_set_accuracy()))
+			print("MLP cross validation accuracy = {}".format(classifier.cross_validation_accuracy()))
 
 		self.root_directory_changed = False
 
@@ -435,24 +446,31 @@ class ClassifierTrainer(QMainWindow):
 		cls5.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls5.train()
 
+		# MLP
+		cls6 = classification.ANNClassifier(feature_matrix, labels, shuffle=False)
+		cls6.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls6.train()
+
 		# Get performance measure from each
 		prm1 = cls1.performance_measure()
 		prm2 = cls2.performance_measure()
 		prm3 = cls3.performance_measure()
 		prm4 = cls4.performance_measure()
 		prm5 = cls5.performance_measure()
+		prm6 = cls6.performance_measure()
 
 		plot_data = np.vstack((
 			prm1.as_row_array(),
 			prm2.as_row_array(),
 			prm3.as_row_array(),
 			prm4.as_row_array(),
-			prm5.as_row_array()
+			prm5.as_row_array(),
+			prm6.as_row_array()
 		))
 
 		plot_data = np.transpose(plot_data)
 
-		x = np.arange(5)
+		x = np.arange(6)
 
 		plt.title("Classifiers' Accuracy")
 
@@ -460,7 +478,7 @@ class ClassifierTrainer(QMainWindow):
 		plt.bar(x + 0.25, plot_data[1], width=0.25, label="Cross Validation Accuracy")
 		plt.bar(x + 0.5, plot_data[2], width=0.25, label="Testing Accuracy")
 
-		plt.xticks(x + 0.125, ("Logistic Regression", "kNN", "Perceptron", "SVM", "LDA"))
+		plt.xticks(x + 0.125, ("Logistic Regression", "kNN", "Perceptron", "SVM", "LDA", "MLP"))
 		plt.ylabel("Accuracy %")
 
 		plt.legend(loc="best")
@@ -499,11 +517,17 @@ class ClassifierTrainer(QMainWindow):
 		cls5.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls5.train()
 
+		# MLP
+		cls6 = classification.ANNClassifier(feature_matrix, labels, shuffle=False)
+		cls6.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls6.train()
+
 		errd1 = cls1.error_description()
 		errd2 = cls2.error_description()
 		errd3 = cls3.error_description()
 		errd4 = cls4.error_description()
 		errd5 = cls5.error_description()
+		errd6 = cls6.error_description()
 
 		unique_labels = self.data_set.unique_labels().flatten()
 		text_labels = []
@@ -520,19 +544,20 @@ class ClassifierTrainer(QMainWindow):
 			errd2.as_row_array(),
 			errd3.as_row_array(),
 			errd4.as_row_array(),
-			errd5.as_row_array()
+			errd5.as_row_array(),
+			errd6.as_row_array()
 		))
 
 		plot_data = plot_data.transpose()
 
-		x = np.arange(5)
+		x = np.arange(6)
 
 		plt.title("Error Description")
 
 		for i in range(label_count):
 			plt.bar(x + 0.25 * i, plot_data[i], width=0.25, label=text_labels[i])
 
-		plt.xticks(x + 0.125, ("Logistic Regression", "kNN", "Perceptron", "SVM", "LDA"))
+		plt.xticks(x + 0.125, ("Logistic Regression", "kNN", "Perceptron", "SVM", "LDA", "MLP"))
 		plt.ylabel("Error Percent")
 
 		plt.legend(loc="best")
@@ -938,6 +963,11 @@ class OnlineClassifierGui(QMainWindow):
 		if type(self.classifier) == classification.LdaClassifier:
 			label = self.classifier.classify(feature_data)
 			self.class_label.setText(f"Current data is classified as {label} using LDA")
+			self.log(f"Data classified as {label}")
+
+		if type(self.classifier) == classification.ANNClassifier:
+			label = self.classifier.classify(feature_data)
+			self.class_label.setText(f"Current data is classified as {label} using MLP")
 			self.log(f"Data classified as {label}")
 
 		print(f"label = {label}")

@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn import svm
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+from sklearn.neural_network import MLPClassifier
 
 import performance
 import statistics
@@ -757,6 +758,63 @@ class LdaClassifier:
 
     def cross_validation_accuracy(self) -> float:
         return self.classifier.score(self.data_set.get_cross_validation_set(), self.data_set.cross_validation_labels.flatten())
+
+    def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
+        return performance.ClassifierPerformanceMeasure(
+            self.training_set_accuracy(),
+            self.cross_validation_accuracy(),
+            self.test_set_accuracy()
+        )
+
+    def error_description(self) -> performance.ClassifierErrorDescription:
+        total_error_count = 0
+
+        class_errors = {}
+
+        for set_type in DataSubSetType:
+            for i in range(self.data_set.sample_count(set_type)):
+                predicted_label = self.classify(self.data_set.sample_at(i, set_type).reshape((1, -1)))[0]
+                actual_label = self.data_set.label_at(i, set_type)
+                if predicted_label != actual_label:  # Incorrect Prediction
+                    if actual_label in class_errors.keys():
+                        class_errors[actual_label] += 1
+                    else:
+                        class_errors[actual_label] = 1
+
+                    total_error_count += 1
+
+        class_labels = []  # TODO: Add a converter from numerical labels to text labels
+        class_errors_percent = []
+
+        for label in class_errors.keys():
+            class_labels.append(str(label))
+            class_errors_percent.append(class_errors[label] / total_error_count * 100)
+
+        return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
+
+
+class ANNClassifier:
+    NAME = "MLP Classifier"
+
+    def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, shuffle: bool = True):
+        self.data_set = DataSet(data_matrix, labels, shuffle=shuffle, add_x0=False)
+        self.classifier = MLPClassifier(solver="lbfgs", alpha=1e-5, hidden_layer_sizes=(5), random_state=1)
+
+    def train(self):
+        self.classifier.fit(self.data_set.get_training_set(), self.data_set.training_set_labels.flatten())
+
+    def classify(self, x: np.ndarray):
+        return self.classifier.predict(x)
+
+    def training_set_accuracy(self):
+        return self.classifier.score(self.data_set.get_training_set(), self.data_set.training_set_labels.flatten())
+
+    def test_set_accuracy(self) -> float:
+        return self.classifier.score(self.data_set.get_test_set(), self.data_set.test_set_labels.flatten())
+
+    def cross_validation_accuracy(self) -> float:
+        return self.classifier.score(self.data_set.get_cross_validation_set(),
+                                     self.data_set.cross_validation_labels.flatten())
 
     def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
         return performance.ClassifierPerformanceMeasure(

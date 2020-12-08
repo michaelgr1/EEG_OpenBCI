@@ -74,7 +74,7 @@ class ResonanceFrequencyFinder(QMainWindow):
 		# self.window_size_combo_box.addItems(self.AVAILABLE_WINDOW_SIZES)
 
 		self.root_directory_label = QLabel("Root Directory")
-		self.select_root_directory = QPushButton("Select/Change root directory")
+		self.select_root_directory = QPushButton("Select/Change")
 		self.select_root_directory.clicked.connect(self.pick_root_directory)
 
 		self.record_btn = QPushButton("Record")
@@ -138,7 +138,7 @@ class ResonanceFrequencyFinder(QMainWindow):
 		self.electrodes_data_series.append(self.c4_amplitude_bar_set)
 
 		self.freq_chart.addSeries(self.electrodes_data_series)
-		self.freq_chart.setTitle("<h1>Frequency Amplitude Increase During Concentration</h1>")
+		self.freq_chart.setTitle("<h1>Frequency Amplitude Increase</h1>")
 		self.freq_chart.addAxis(self.freq_axis, Qt.AlignBottom)
 		self.freq_chart.addAxis(self.amplitude_axis, Qt.AlignLeft)
 
