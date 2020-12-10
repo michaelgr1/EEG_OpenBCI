@@ -1,5 +1,6 @@
 import math
 import sys
+import time
 from enum import Enum
 
 import PyQt5.QtCore
@@ -11,6 +12,7 @@ from brainflow import BoardShim
 from brainflow.data_filter import DataFilter, WindowFunctions, FilterTypes
 
 import global_config
+import numerical
 
 
 class AccumulatingAverage:
@@ -867,9 +869,78 @@ def cyton_port() -> str:
 	ports = available_com_ports()
 
 	for port in ports:
-		if "FTDI" in port.manufacturer:
+		if "DQ007MTCA" == port.serial_number:
 			return port.device
 	return ""
+
+
+def vibration_port() -> str:
+	ports = available_com_ports()
+
+	for port in ports:
+		if "AL01BFIPA" == port.serial_number:
+			return port.device
+	return ""
+
+
+def frequency_packet_in_decimal(frequency):
+	conv_factor = (2 ** 29 / (10 ** 6))
+
+	decimal = conv_factor * frequency
+	return int(decimal + 4 * 16 ** 3)
+
+
+def stop_vibration(vibration_serial):
+	if vibration_serial is not None and vibration_serial.isOpen():
+		packet = bytearray()
+		packet.append(0x80)
+		packet.append(0x51)
+		packet.append(0x02)
+		packet.append(0x40)
+		packet.append(0x00)
+		packet.append(0x00)
+		packet.append(0xcc)
+		vibration_serial.write(packet)
+
+
+def start_vibration(vibration_serial, left_frequency, right_frequency):
+	if vibration_serial is not None and vibration_serial.isOpen():
+
+		print(f"Starting vibration with left freq of {left_frequency} Hz and right freq of {right_frequency} Hz")
+
+		left_freq = frequency_packet_in_decimal(left_frequency)
+		right_freq = frequency_packet_in_decimal(right_frequency)
+
+		left_hex = numerical.to_hex(left_freq, 4)
+		right_hex = numerical.to_hex(right_freq, 4)
+
+		# Send left command
+		packet = bytearray()
+		packet.append(0x81)
+
+		packet.append(int(left_hex[0:2], 16))
+		packet.append(int(left_hex[2:4], 16))
+
+		packet.append(0x40)
+		packet.append(0x00)
+		packet.append(0x00)
+		packet.append(0xcc)
+		vibration_serial.write(packet)
+
+		time.sleep(0.1)
+
+		# Send right command
+		packet = bytearray()
+		packet.append(0x82)
+
+		packet.append(int(right_hex[0:2], 16))
+		packet.append(int(right_hex[2:4], 16))
+
+		packet.append(0x40)
+		packet.append(0x00)
+		packet.append(0x00)
+		packet.append(0xff)
+		vibration_serial.write(packet)
 
 
 def trial_class_as_string(trial_class: TrialClass) -> str:
@@ -877,5 +948,6 @@ def trial_class_as_string(trial_class: TrialClass) -> str:
 
 
 def trial_class_from_string(string: str) -> TrialClass:
+	string = string.replace("\n", "")
 	items = string.split("|")
-	return TrialClass(items[0], items[1], int(items[2]), Direction(int(items[3])))
+	return TrialClass(items[0], items[1], int(items[2]), Direction[items[3].split(".")[1]])

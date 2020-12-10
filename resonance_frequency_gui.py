@@ -1,12 +1,13 @@
 import sys
 
 import pyqtgraph as pg
+import serial
 from PyQt5.QtChart import QChartView, QChart, QBarSet, QBarSeries, QBarCategoryAxis, QValueAxis
 from PyQt5.QtCore import QTimer
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import QWidget, QApplication, QGridLayout, QMainWindow, QLabel, QPushButton, QFileDialog, QSlider, \
-	QProgressDialog, QErrorMessage
+	QProgressDialog, QErrorMessage, QCheckBox
 from brainflow.board_shim import BoardShim, BrainFlowInputParams
 from brainflow.data_filter import DataFilter
 
@@ -87,6 +88,9 @@ class ResonanceFrequencyFinder(QMainWindow):
 		# self.root_layout.addWidget(utils.construct_horizontal_box([
 		# 	window_size_label, self.window_size_combo_box, self.record_btn
 		# ]), 1, 0, 1, 3)
+
+		self.vibration_control_checkbox = QCheckBox("Vibration Control")
+		self.vibration_serial = None
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			self.record_btn, self.record_reference_btn, self.root_directory_label, self.select_root_directory
@@ -192,6 +196,14 @@ class ResonanceFrequencyFinder(QMainWindow):
 		else:
 			self.recording = True
 			self.eeg_data_buffer.clear()
+			if self.vibration_control_checkbox.isChecked():
+				if self.vibration_serial is None:
+					self.vibration_serial = serial.Serial(port=utils.vibration_port(), baudrate=115200, timeout=5000)
+
+				if not self.vibration_serial.isOpen():
+					self.vibration_serial.open()
+				frequency = self.frequency_slider.value()
+				utils.start_vibration(self.vibration_serial, frequency, frequency)
 
 		self.board.start_stream()
 
@@ -239,6 +251,8 @@ class ResonanceFrequencyFinder(QMainWindow):
 	def stop_recording(self, reference: bool = False):
 		if self.reading_timer is not None:
 			self.reading_timer.deleteLater()
+
+		utils.stop_vibration(self.vibration_serial)
 
 		self.board.stop_stream()
 		self.recording = False

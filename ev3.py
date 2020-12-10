@@ -28,6 +28,7 @@ class EV3:
     def receive_reply(self, size: int):
         return self.socket.recv(size)
 
+
 class Constants:
     DIRECT_COMMAND_REPLY = 0x00
     DIRECT_COMMAND_NO_REPLY = 0x80

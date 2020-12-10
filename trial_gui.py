@@ -5,10 +5,11 @@ import time
 from os import listdir
 
 import PyQt5.QtCore
+import serial
 from PyQt5.QtCore import QTimer
 from PyQt5.QtGui import QPixmap, QFont
 from PyQt5.QtWidgets import QWidget, QApplication, QGridLayout, QMainWindow, QComboBox, \
-	QHBoxLayout, QLabel, QPushButton, QLineEdit, QFileDialog, QDialog, QSlider, QErrorMessage, QMessageBox
+	QHBoxLayout, QLabel, QPushButton, QLineEdit, QFileDialog, QDialog, QSlider, QErrorMessage, QMessageBox, QCheckBox
 from brainflow.board_shim import BoardShim, BrainFlowInputParams
 from brainflow.data_filter import DataFilter
 
@@ -77,7 +78,10 @@ class TrialConfigurations:
 					relaxation_period: int = DEFAULT_RELAXATION_PERIOD,
 					classes: [utils.TrialClass] = DEFAULT_CLASSES,
 					root_directory: str = DEFAULT_ROOT_DIRECTORY,
-					feedback_provider: FeedbackProvider = FeedbackProvider()):
+					feedback_provider: FeedbackProvider = FeedbackProvider(),
+				 	vibration_control: bool = False,
+				 	left_frequency: int = 0,
+				 	right_frequency: int = 0):
 		self.start_delay = start_delay
 		self.trial_duration = trial_duration
 		self.repetitions = repetitions
@@ -85,6 +89,9 @@ class TrialConfigurations:
 		self.classes = classes
 		self.root_directory = root_directory
 		self.feedback_provider = feedback_provider
+		self.vibration_control = vibration_control
+		self.left_frequency = left_frequency
+		self.right_frequency = right_frequency
 		self.overwrite_files = True
 		self.non_empty_root_directory = False
 
@@ -163,21 +170,34 @@ class TrialConfigDialog(QDialog):
 
 		self.classes_combo_boxes = []
 
-		self.root_layout.addWidget(self.class_picker_widget, 3, 1, 2, 1)
+		self.root_layout.addWidget(self.class_picker_widget, 3, 1, 1, 1)
 
 		self.class_count_update()
+
+		# Vibration control
+		self.vibration_control_checkbox = QCheckBox("Vibration Control")
+		self.vibration_control_checkbox.setChecked(self.config.vibration_control)
+		self.left_freq_edit = QLineEdit()
+		self.left_freq_edit.setText(str(self.config.left_frequency))
+		self.right_freq_edit = QLineEdit()
+		self.right_freq_edit.setText(str(self.config.right_frequency))
+
+		self.root_layout.addWidget(utils.construct_horizontal_box([
+			self.vibration_control_checkbox, QLabel("Left Frequency (Hz):"), self.left_freq_edit, QLabel("Right Frequency (Hz):"),
+			self.right_freq_edit
+		]), 4, 0, 1, 3)
 
 		# File saving settings
 		second_title = QLabel("<h2>Save Files</h2>")
 		second_title.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
-		self.root_layout.addWidget(second_title, 4, 0, 1, 3)
+		self.root_layout.addWidget(second_title, 5, 0, 1, 3)
 
 		self.root_directory_path_label = QLabel(self.config.root_directory)
 		self.change_root_directory_btn = QPushButton("Select/Change")
 		self.change_root_directory_btn.clicked.connect(self.change_root_directory_clicked)
 
 		self.root_layout.addWidget(self.label_widgets_row("Root Directory: ",
-									[self.root_directory_path_label, self.change_root_directory_btn]), 5, 0, 1, 3)
+									[self.root_directory_path_label, self.change_root_directory_btn]), 6, 0, 1, 3)
 
 		info_title = QLabel("<h3>Info</h3>")
 		info_title.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
@@ -214,6 +234,14 @@ class TrialConfigDialog(QDialog):
 
 		if utils.is_integer(self.relaxation_period_edit.text()):
 			self.config.relaxation_period = int(self.relaxation_period_edit.text())
+
+		if utils.is_integer(self.left_freq_edit.text()):
+			self.config.left_frequency = int(self.left_freq_edit.text())
+
+		if utils.is_integer(self.right_freq_edit.text()):
+			self.config.right_frequency = int(self.right_freq_edit.text())
+
+		self.config.vibration_control = self.vibration_control_checkbox.isChecked()
 
 	def save(self):
 		print("Save clicked")
@@ -364,6 +392,7 @@ class TrialConfigDialog(QDialog):
 
 class TrialConductor(QMainWindow):
 
+	vibration_serial: serial.Serial
 	HOME_IMAGE_PATH = global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/class_images/home.png"
 
 	# TRIAL_CLASSES = utils.AlphaRhythmClasses.ALL.copy()
@@ -375,6 +404,8 @@ class TrialConductor(QMainWindow):
 		self.setWindowTitle("Trial Conductor")
 
 		self.board = board
+
+		self.vibration_serial = None
 
 		self.start_timer = QTimer()
 		self.start_timer.setSingleShot(True)
@@ -521,6 +552,7 @@ class TrialConductor(QMainWindow):
 		self.relaxation_timer = None
 
 	def next_class(self):
+		utils.start_vibration(self.vibration_serial, self.configurations.left_frequency, self.configurations.right_frequency)
 		if self.trial_count >= self.configurations.repetitions:
 			self.terminate_trial()
 			return
@@ -545,6 +577,7 @@ class TrialConductor(QMainWindow):
 		self.relaxation_timer.start(self.configurations.trial_duration * 1000)
 
 	def show_relaxation_image(self):
+		utils.stop_vibration(self.vibration_serial)
 		self.destroy_timers()
 		self.create_timers()
 		print("Relax")
@@ -557,6 +590,7 @@ class TrialConductor(QMainWindow):
 	def terminate_trial(self):
 		self.destroy_timers()
 		self.stop_eeg_recording()
+		utils.stop_vibration(self.vibration_serial)
 
 		self.timer_label.setText("Press Start")
 
@@ -572,6 +606,9 @@ class TrialConductor(QMainWindow):
 		self.configurations.non_empty_root_directory = True
 
 	def configure(self):
+		if self.vibration_serial is not None:
+			self.vibration_serial.close()
+			self.vibration_serial = None
 		self.configurations = TrialConfigDialog(config=self.configurations).edit_config()
 		if self.configurations.non_empty_root_directory:
 			if not self.configurations.overwrite_files:
@@ -612,6 +649,14 @@ class TrialConductor(QMainWindow):
 						os.remove(self.configurations.slice_index_path())
 				else:
 					print("Please select a different directory")
+
+		if self.configurations.vibration_control:
+			self.vibration_serial = serial.Serial(port=utils.vibration_port(), baudrate=115200, timeout=5000)
+			if not self.vibration_serial.isOpen():
+				print("Opening port")
+				self.vibration_serial.open()
+			else:
+				print("Port is already open")
 
 
 def main():
