@@ -600,12 +600,15 @@ def obtain_trial_length_from_slice_index(root_directory_path: str) -> float:
 def load_data(root_directory_path: str) -> np.ndarray:
 	data_file_path = root_directory_path + f"/{global_config.EEG_DATA_FILE_NAME}"
 
+	print(data_file_path)
+
 	raw_unsliced_data = DataFilter.read_file(data_file_path)
 
 	return raw_unsliced_data
 
 
-def slice_and_filter_data(root_directory_path: str, filter_settings: FilterSettings, raw_eeg_data: np.ndarray = None) -> ([EegData], [int], int):
+def slice_and_filter_data(root_directory_path: str, filter_settings: FilterSettings,
+							raw_eeg_data: np.ndarray = None) -> ([EegData], [int], int, [TrialClass]):
 
 	""""
 		Reads the data from the root directory and slices it according to the instructions in the slice index file.
