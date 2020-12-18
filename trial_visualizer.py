@@ -5,9 +5,9 @@ from matplotlib import pyplot as plt
 
 import utils
 
-LEFT_FREQ = 17
+LEFT_FREQ = 20
 
-RIGHT_FREQ = 23
+RIGHT_FREQ = 24
 
 BANDWIDTH = 0.2
 
@@ -139,11 +139,23 @@ def main():
 					# ax[i, j].xlabel("Frequency Hz")
 					# ax[i, j].ylabel("Amplitude")
 
+					f17_average = utils.AccumulatingAverage()
+					f23_average = utils.AccumulatingAverage()
+
 					for k in range(len(eeg_data)):
 						if labels[k] == label:
 							extractor = eeg_data[k].feature_extractor(electrode - 1, fs)
 							frequency, power = extractor.fft(WINDOW_SIZE)
+							f17 = extractor.frequency_amplitude(LEFT_FREQ, WINDOW_SIZE)
+							f23 = extractor.frequency_amplitude(RIGHT_FREQ, WINDOW_SIZE)
+							f17_average.add_value(f17)
+							f23_average.add_value(f23)
 							ax[i, j].plot(frequency[0:100], power[0:100])
+
+					t = np.linspace(0, 40, 2)
+					ax[i, j].plot(t, np.ones_like(t) * f17_average.compute_average(), label="17 Hz average")
+					ax[i, j].plot(t, np.ones_like(t) * f23_average.compute_average(), label="23 Hz average")
+					ax[i, j].legend()
 			plt.show()
 		elif option == 0:
 			break

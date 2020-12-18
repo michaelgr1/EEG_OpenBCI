@@ -5,6 +5,7 @@ from enum import Enum
 
 import PyQt5.QtCore
 import numpy as np
+import padasip as pa
 import serial.tools.list_ports
 from PyQt5.QtChart import QValueAxis, QBarSet
 from PyQt5.QtWidgets import QWidget, QHBoxLayout
@@ -391,21 +392,71 @@ class FeatureVector:
 			self.data = np.concatenate((self.data, features), axis=1)
 
 
+class AdaptiveFilterSettings:
+
+	def __init__(self, reference_electrode: int, frequencies: [float], bandwidths: [float]):
+		self.reference_electrode = reference_electrode
+		self.frequencies = frequencies
+		self.bandwidths = bandwidths
+
+	def apply(self, eeg_data: EegData, sampling_rate: int) -> np.ndarray:
+
+		reference_data = eeg_data.get_channel_data(self.reference_electrode - 1)
+
+		all_filtered_data = np.zeros_like(eeg_data.to_row_array())
+
+		for channel in range(0, len(eeg_data.channels)):
+			if channel != self.reference_electrode - 1:
+				current_raw_data = eeg_data.get_channel_data(channel)
+
+				noise = np.zeros_like(current_raw_data)
+
+				for i in range(len(self.frequencies)):
+					bandwidth = self.bandwidths[i]
+					freq = self.frequencies[i]
+
+					filtered_data = current_raw_data.copy()
+					DataFilter.perform_bandpass(filtered_data, sampling_rate, freq, bandwidth, 4,
+												FilterTypes.BUTTERWORTH.value, 0)
+
+					noise_data = reference_data.copy()
+					DataFilter.perform_bandpass(noise_data, sampling_rate, freq, bandwidth, 4,
+												FilterTypes.BUTTERWORTH.value, 0)
+
+					lms_filter = pa.filters.FilterLMS(1, mu=0.000001)
+					y, e, w = lms_filter.run(filtered_data, noise_data.reshape(-1, 1))
+					noise = noise + y
+
+				all_filtered_data[channel, :] = current_raw_data - noise
+		return all_filtered_data
+
+
 class FilterSettings:
 
-	def __init__(self, sampling_rate: int, low_pass: float, high_pass, subtract_average: bool = True, notch_filter: bool = True, notch_freq: float = 50):
+	def __init__(self, sampling_rate: int,
+					low_pass: float, high_pass,
+					subtract_average: bool = True,
+					notch_filter: bool = True,
+					notch_freq: float = 50,
+					adaptive_filter_settings: AdaptiveFilterSettings = None):
 		self.sampling_rate = sampling_rate
 		self.low_pass = low_pass
 		self.high_pass = high_pass
 		self.subtract_average = subtract_average
 		self.notch_filter = notch_filter
 		self.notch_freq = notch_freq
+		self.adaptive_filter_settings = adaptive_filter_settings
 
 	def apply(self, data: np.ndarray) -> np.ndarray:
 		eeg_data = EegData(data)
 		eeg_data.filter_all_channels(self.sampling_rate, self.low_pass, self.high_pass, self.subtract_average,
 										self.notch_filter, self.notch_freq)
-		return eeg_data.to_row_array()
+
+		filtered_data = eeg_data.to_row_array()
+		if self.adaptive_filter_settings is not None:
+			filtered_data = self.adaptive_filter_settings.apply(eeg_data, self.sampling_rate)
+
+		return filtered_data
 
 
 class AverageBandAmplitudeFeature:
@@ -439,10 +490,9 @@ class FrequencyBandsAmplitudeFeature:
 
 class FeatureExtractionInfo:
 
-	def __init__(self, sampling_rate: int, first_channel: int, last_channel: int):
+	def __init__(self, sampling_rate: int, electrodes_list: [int]):
 		self.sampling_rate = sampling_rate
-		self.first_channel = first_channel
-		self.last_channel = last_channel
+		self.electrodes_list = electrodes_list
 
 
 class Direction(Enum):
@@ -689,8 +739,8 @@ def extract_features(data_list: [EegData], info: FeatureExtractionInfo, feature_
 	for i in range(len(data_list)):  # For each EegData item in the list
 		feature_vector = FeatureVector()
 
-		for channel in range(info.first_channel - 1, info.last_channel):  # For each channel
-
+		for electrode in info.electrodes_list:  # For each channel
+			channel = electrode - 1
 			# Data is assumed to be in a format where a row represent all the data from a given channel.
 			channel_data = data_list[i].get_channel_data(channel)
 			feature_extractor = FeatureExtractor(channel_data, info.sampling_rate)
@@ -942,7 +992,7 @@ def start_vibration(vibration_serial, left_frequency, right_frequency):
 		packet.append(0x40)
 		packet.append(0x00)
 		packet.append(0x00)
-		packet.append(0xff)
+		packet.append(0xcc)
 		vibration_serial.write(packet)
 
 

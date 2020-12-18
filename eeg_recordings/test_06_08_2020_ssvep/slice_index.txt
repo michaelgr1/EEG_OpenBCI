@@ -1,5 +1,5 @@
 250
-Left LED|E:/EEG_GUI_OpenBCI/class_images/left_arrow.png|0|0,Right LED|E:/EEG_GUI_OpenBCI/class_images/right_arrow.png|1|1
+Left LED|E:/EEG_GUI_OpenBCI/class_images/left_arrow.png|0|Direction.LEFT,Right LED|E:/EEG_GUI_OpenBCI/class_images/right_arrow.png|1|Direction.RIGHT
 0,1083,3583
 1,4930,7430
 1,8695,11195

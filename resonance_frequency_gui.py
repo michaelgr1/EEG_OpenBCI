@@ -34,13 +34,13 @@ class ResonanceFrequencyFinder(QMainWindow):
 	# Used to create a band for which the average frequency amplitude is computed
 	DEFAULT_FREQUENCY_PADDING = 0.2
 
-	DEFAULT_BANDPASS_MIN = 2
+	DEFAULT_BANDPASS_MIN = 11
 
-	DEFAULT_BANDPASS_MAX = 55
+	DEFAULT_BANDPASS_MAX = 30
 
-	DEFAULT_C3_CHANNEL_INDEX = 0
+	DEFAULT_C3_CHANNEL_INDEX = 4
 
-	DEFAULT_CZ_CHANNEL_INDEX = 1
+	DEFAULT_CZ_CHANNEL_INDEX = 3
 
 	DEFAULT_C4_CHANNEL_INDEX = 2
 
@@ -93,7 +93,7 @@ class ResonanceFrequencyFinder(QMainWindow):
 		self.vibration_serial = None
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
-			self.record_btn, self.record_reference_btn, self.root_directory_label, self.select_root_directory
+			self.record_btn, self.record_reference_btn, self.root_directory_label, self.select_root_directory, self.vibration_control_checkbox
 		]), 1, 0, 1, 3)
 
 		self.current_freq_label = QLabel()
@@ -214,6 +214,14 @@ class ResonanceFrequencyFinder(QMainWindow):
 	def record_reference_clicked(self):
 		print("Record reference clicked")
 		self.record_clicked(reference=True)
+		if self.vibration_control_checkbox.isChecked():
+			if self.vibration_serial is None:
+				self.vibration_serial = serial.Serial(port=utils.vibration_port(), baudrate=115200, timeout=5000)
+
+			if not self.vibration_serial.isOpen():
+				self.vibration_serial.open()
+			frequency = self.frequency_slider.value()
+			utils.start_vibration(self.vibration_serial, frequency, frequency)
 
 	def read_data(self):
 		if not self.recording and not self.recording_reference:
@@ -269,7 +277,7 @@ class ResonanceFrequencyFinder(QMainWindow):
 			if reference:
 				file_name += "reference.csv"
 			else:
-				file_name += "freq_"+self.frequency_slider.value()+".csv"
+				file_name += "freq_"+str(self.frequency_slider.value())+".csv"
 
 			if reference:
 				DataFilter.write_file(self.reference_eeg_data.to_row_array(), file_name, "a")
@@ -278,14 +286,13 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 		if reference:
 			self.record_btn.setEnabled(True)
-			self.record_reference_btn.setEnabled(False)
+			# self.record_reference_btn.setEnabled(False)
 			self.reference_eeg_data.filter_all_channels(
 				global_config.SAMPLING_RATE, self.DEFAULT_BANDPASS_MIN, self.DEFAULT_BANDPASS_MAX, True
 			)
 			print("Reference data saved...")
 		else:
 			print("Stopping the recording...")
-
 			selected_frequency = self.frequency_slider.value()
 
 			print("Filtering data...")
@@ -374,6 +381,9 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 		self.amplitude_axis.setMin(axis_min)
 		self.amplitude_axis.setMax(axis_max)
+
+	def closeEvent(self, event) -> None:
+		self.vibration_serial.close()
 
 
 def main():

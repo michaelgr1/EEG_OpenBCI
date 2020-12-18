@@ -1,5 +1,5 @@
 250
-Opened Eyes|E:/EEG_GUI_OpenBCI/class_images/eyes/eyes_opened.jpg|0,Closed Eyes|E:/EEG_GUI_OpenBCI/class_images/eyes/eyes_closed.jpg|1
+Opened Eyes|E:/EEG_GUI_OpenBCI/class_images/eyes/eyes_opened.jpg|0|Direction.FORWARD,Closed Eyes|E:/EEG_GUI_OpenBCI/class_images/eyes/eyes_closed.jpg|1|Direction.BACKWARD
 0,842,2092
 1,3367,4617
 1,5892,7142

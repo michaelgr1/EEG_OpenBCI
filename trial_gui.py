@@ -658,6 +658,9 @@ class TrialConductor(QMainWindow):
 			else:
 				print("Port is already open")
 
+	def closeEvent(self, event) -> None:
+		self.vibration_serial.close()
+
 
 def main():
 	app = QApplication([])

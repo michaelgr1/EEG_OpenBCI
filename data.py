@@ -316,6 +316,9 @@ class DataSet:
 	def raw_feature_matrix(self):
 		return np.vstack((self.raw_training_set, self.raw_cross_validation_set, self.raw_test_set))
 
+	def scaled_feature_matrix(self):
+		return self.feature_scalar.scale_feature_matrix(self.raw_feature_matrix())
+
 	def feature_matrix_labels(self):
 		return np.vstack((self.training_set_labels, self.cross_validation_labels, self.test_set_labels))
 

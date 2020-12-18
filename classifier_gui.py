@@ -11,11 +11,11 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QWidget, QApplication, QCheckBox, QGridLayout, QMainWindow, QComboBox, QLabel, QPushButton, \
 	QLineEdit, QFileDialog, QHBoxLayout, QPlainTextEdit, QGroupBox, QRadioButton
 from brainflow.board_shim import BoardShim, BrainFlowInputParams
+from sklearn.decomposition import PCA
 
 import classification
 import data
 # import ev3
-import ev3
 import global_config
 import utils
 from data import DataSet
@@ -100,6 +100,20 @@ class ClassifierTrainer(QMainWindow):
 			 self.bandpass_max_edit,
 			 self.notch_filter_checkbox]), 7, 0, 1, 3)
 
+		self.adaptive_filtering_checkbox = QCheckBox("Adaptive Filtering")
+		self.adaptive_reference_electrode = QLineEdit()
+		self.adaptive_frequencies_edit = QLineEdit()
+		self.adaptive_bandwidths_edit = QLineEdit()
+
+		self.root_layout.addWidget(utils.construct_horizontal_box(
+			[
+				self.adaptive_filtering_checkbox,
+				QLabel("Reference Electrode: "), self.adaptive_reference_electrode,
+				QLabel("Frequencies (comma separated):"), self.adaptive_frequencies_edit,
+				QLabel("Bandwidths (comma separated):"), self.adaptive_bandwidths_edit
+			 ],
+		), 8, 0, 1, 3)
+
 		self.feature_scaling_radio_group = QGroupBox()
 
 		self.selected_feature_scaling_type = data.FeatureScalingType.NO_SCALING
@@ -132,18 +146,16 @@ class ClassifierTrainer(QMainWindow):
 		self.feature_scaling_radio_group.setChecked(False)
 		self.feature_scaling_radio_group.setTitle("Feature Scaling")
 
-		self.root_layout.addWidget(self.feature_scaling_radio_group, 8, 0, 1, 3)
+		self.root_layout.addWidget(self.feature_scaling_radio_group, 9, 0, 1, 3)
 
 		feature_extraction_label = QLabel("<h2> Extract Features </h2>")
 		feature_extraction_label.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
-		self.root_layout.addWidget(feature_extraction_label, 9, 0, 1, 3)
+		self.root_layout.addWidget(feature_extraction_label, 10, 0, 1, 3)
 
-		self.first_electrode_edit = QLineEdit()
-		self.last_electrode_edit = QLineEdit()
+		self.electrodes_edit = QLineEdit()
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
-			QLabel("Include data from electrode "), self.first_electrode_edit, QLabel(" up to electrode "),
-			self.last_electrode_edit]), 10, 0, 1, 3)
+			QLabel("Include data from electrodes (comma separated):"), self.electrodes_edit]), 11, 0, 1, 2)
 
 		self.band_amplitude_checkbox = QCheckBox("Average Band Amplitude")
 
@@ -165,12 +177,12 @@ class ClassifierTrainer(QMainWindow):
 			QLabel("FFT Window Size:"), self.fft_window_combo, QLabel("K value:"), self.k_value_edit,
 			QLabel("Accuracy Threshold (0 - 1):"), self.accuracy_threshold_edit,
 			QLabel("Regularization Parameter:"), self.regularization_edit
-		]), 11, 0, 1, 3)
+		]), 12, 0, 1, 3)
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			self.band_amplitude_checkbox, QLabel("Frequency band from "), self.band_amplitude_min_edit,
 			QLabel(" up to "), self.band_amplitude_max_edit
-		]), 12, 0, 1, 3)
+		]), 13, 0, 1, 3)
 
 		# Extract features as frequency band width and multiple frequency band centers.
 
@@ -183,15 +195,15 @@ class ClassifierTrainer(QMainWindow):
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			self.frequency_bands_checkbox, QLabel("Bandwidth: "), self.band_width_edit,
 			QLabel("Center Frequencies (comma separated): "), self.center_frequencies_edit
-		]), 13, 0, 1, 3)
+		]), 14, 0, 1, 3)
 
 		classifier_type_label = QLabel("<p>Classifier Type:</p>")
 
 		self.classifier_type_combo = QComboBox()
 		self.classifier_type_combo.addItems(AVAILABLE_CLASSIFIERS)
 
-		self.root_layout.addWidget(classifier_type_label, 14, 0, 1, 1)
-		self.root_layout.addWidget(self.classifier_type_combo, 14, 1, 1, 1)
+		self.root_layout.addWidget(classifier_type_label, 15, 0, 1, 1)
+		self.root_layout.addWidget(self.classifier_type_combo, 15, 1, 1, 1)
 
 		self.extract_features_btn = QPushButton("Extract Features")
 		self.extract_features_btn.clicked.connect(self.extract_features_clicked)
@@ -204,7 +216,7 @@ class ClassifierTrainer(QMainWindow):
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			self.extract_features_btn, self.shuffle_data_set, self.train_classifier_btn, self.test_classifier_btn
-		]), 15, 0, 1, 3)
+		]), 16, 0, 1, 3)
 
 		self.performance_report_btn = QPushButton("Performance Report")
 		self.performance_report_btn.clicked.connect(self.generate_performance_report)
@@ -212,9 +224,12 @@ class ClassifierTrainer(QMainWindow):
 		self.error_description_btn = QPushButton("Error Description")
 		self.error_description_btn.clicked.connect(self.generate_error_descriptions)
 
+		self.visualize_data_btn = QPushButton("Visualize Data")
+		self.visualize_data_btn.clicked.connect(self.visualize_data)
+
 		self.root_layout.addWidget(utils.construct_horizontal_box([
-			self.performance_report_btn, self.error_description_btn
-		]), 16, 0, 1, 3)
+			self.performance_report_btn, self.error_description_btn, self.visualize_data_btn
+		]), 17, 0, 1, 3)
 
 	def set_feature_scaling_type(self, feature_scaling_type: data.FeatureScalingType):
 		self.selected_feature_scaling_type = feature_scaling_type
@@ -234,7 +249,23 @@ class ClassifierTrainer(QMainWindow):
 		if utils.is_float(self.bandpass_max_edit.text()):
 			bandpass_max = float(self.bandpass_max_edit.text())
 
-		filter_settings = utils.FilterSettings(global_config.SAMPLING_RATE, bandpass_min, bandpass_max, notch_filter)
+		adaptive_settings = None
+
+		if self.adaptive_filtering_checkbox.isChecked():
+			reference_electrode = int(self.adaptive_reference_electrode.text())
+			frequencies = []
+			widths = []
+
+			for freq_str in self.adaptive_frequencies_edit.text().split(","):
+				frequencies.append(float(freq_str))
+
+			for width_str in self.adaptive_bandwidths_edit.text().split(","):
+				widths.append(float(width_str))
+
+			adaptive_settings = utils.AdaptiveFilterSettings(reference_electrode, frequencies, widths)
+
+		filter_settings = utils.FilterSettings(global_config.SAMPLING_RATE, bandpass_min, bandpass_max, notch_filter=notch_filter,
+											   adaptive_filter_settings=adaptive_settings)
 
 		if self.root_directory_changed:
 			self.loaded_eeg_data = utils.load_data(self.root_directory_label.text())
@@ -253,14 +284,10 @@ class ClassifierTrainer(QMainWindow):
 		# Construct feature descriptors.
 
 		# Obtain the range of channels to be included
-		first_electrode = -1
-		last_electrode = -1
+		electrode_list = []
 
-		if utils.is_integer(self.first_electrode_edit.text()):
-			first_electrode = int(self.first_electrode_edit.text())
-
-		if utils.is_integer(self.last_electrode_edit.text()):
-			last_electrode = int(self.last_electrode_edit.text())
+		for electrode_str in self.electrodes_edit.text().split(","):
+			electrode_list.append(int(electrode_str))
 
 		fft_window_size = float(self.fft_window_combo.currentText())
 
@@ -299,7 +326,7 @@ class ClassifierTrainer(QMainWindow):
 				feature_types.append(
 					utils.FrequencyBandsAmplitudeFeature(center_frequencies, band_width, fft_window_size))
 
-		feature_extraction_info = utils.FeatureExtractionInfo(sampling_rate, first_electrode, last_electrode)
+		feature_extraction_info = utils.FeatureExtractionInfo(sampling_rate, electrode_list)
 
 		self.filter_settings = filter_settings
 		self.feature_extraction_info = feature_extraction_info
@@ -559,6 +586,42 @@ class ClassifierTrainer(QMainWindow):
 
 		plt.xticks(x + 0.125, ("Logistic Regression", "kNN", "Perceptron", "SVM", "LDA", "MLP"))
 		plt.ylabel("Error Percent")
+
+		plt.legend(loc="best")
+		plt.show()
+
+	def visualize_data(self):
+		if self.data_set is None:
+			print("Please extract features before trying to visualize...")
+			return
+		self.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		feature_matrix = self.data_set.scaled_feature_matrix()
+		labels = self.data_set.feature_matrix_labels()
+
+		pca = PCA(n_components=2)
+		x = pca.fit_transform(feature_matrix)
+
+		plt.figure()
+		plt.title("Data reduced to 2D using PCA")
+
+		unique_labels = np.unique(labels)
+
+		label_to_name = {}
+
+		for label in unique_labels:
+			for trial_class in self.trial_classes:
+				if trial_class.label == label:
+					label_to_name[label] = trial_class.name
+
+		for label in unique_labels:
+			x_values = x[labels.flatten() == label, :]
+			plt.scatter(x_values[:, 0], x_values[:, 1], label=f"{label_to_name[label]}")
+
+		ratio1 = int(pca.explained_variance_ratio_[0] * 100 * 100) / 100
+		ratio2 = int(pca.explained_variance_ratio_[1] * 100 * 100) / 100
+
+		plt.xlabel(f"PC1 %{ratio1}")
+		plt.ylabel(f"PC2 %{ratio2}")
 
 		plt.legend(loc="best")
 		plt.show()
