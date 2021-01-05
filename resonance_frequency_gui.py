@@ -1,15 +1,16 @@
 import sys
 
+import numpy as np
 import pyqtgraph as pg
-import serial
 from PyQt5.QtChart import QChartView, QChart, QBarSet, QBarSeries, QBarCategoryAxis, QValueAxis
 from PyQt5.QtCore import QTimer
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import QWidget, QApplication, QGridLayout, QMainWindow, QLabel, QPushButton, QFileDialog, QSlider, \
-	QProgressDialog, QErrorMessage, QCheckBox
+	QProgressDialog, QErrorMessage
 from brainflow.board_shim import BoardShim, BrainFlowInputParams
 from brainflow.data_filter import DataFilter
+from matplotlib import pyplot as plt
 
 import global_config
 import utils
@@ -21,9 +22,9 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 	DEFAULT_GRAPH_PADDING = 2
 
-	DEFAULT_FFT_WINDOW_SIZE = pow(2, utils.closest_power_of_two(5 * global_config.SAMPLING_RATE)) / global_config.SAMPLING_RATE
+	DEFAULT_FFT_WINDOW_SIZE = 3
 
-	DEFAULT_RECORDING_DURATION = DEFAULT_FFT_WINDOW_SIZE * 5
+	DEFAULT_RECORDING_DURATION = 10
 
 	DEFAULT_MIN_FREQUENCY = 17
 
@@ -36,13 +37,13 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 	DEFAULT_BANDPASS_MIN = 11
 
-	DEFAULT_BANDPASS_MAX = 30
+	DEFAULT_BANDPASS_MAX = 40
 
-	DEFAULT_C3_CHANNEL_INDEX = 4
+	DEFAULT_C3_CHANNEL_INDEX = 5
 
 	DEFAULT_CZ_CHANNEL_INDEX = 3
 
-	DEFAULT_C4_CHANNEL_INDEX = 2
+	DEFAULT_C4_CHANNEL_INDEX = 1
 
 	def __init__(self, board: BoardShim):
 		super().__init__()
@@ -89,11 +90,12 @@ class ResonanceFrequencyFinder(QMainWindow):
 		# 	window_size_label, self.window_size_combo_box, self.record_btn
 		# ]), 1, 0, 1, 3)
 
-		self.vibration_control_checkbox = QCheckBox("Vibration Control")
-		self.vibration_serial = None
+		self.load_results_btn = QPushButton("Load Existing Data")
+		self.load_results_btn.clicked.connect(self.load_existing_data)
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
-			self.record_btn, self.record_reference_btn, self.root_directory_label, self.select_root_directory, self.vibration_control_checkbox
+			self.record_btn, self.record_reference_btn, self.root_directory_label,
+			self.select_root_directory, self.load_results_btn
 		]), 1, 0, 1, 3)
 
 		self.current_freq_label = QLabel()
@@ -196,14 +198,6 @@ class ResonanceFrequencyFinder(QMainWindow):
 		else:
 			self.recording = True
 			self.eeg_data_buffer.clear()
-			if self.vibration_control_checkbox.isChecked():
-				if self.vibration_serial is None:
-					self.vibration_serial = serial.Serial(port=utils.vibration_port(), baudrate=115200, timeout=5000)
-
-				if not self.vibration_serial.isOpen():
-					self.vibration_serial.open()
-				frequency = self.frequency_slider.value()
-				utils.start_vibration(self.vibration_serial, frequency, frequency)
 
 		self.board.start_stream()
 
@@ -213,15 +207,9 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 	def record_reference_clicked(self):
 		print("Record reference clicked")
+		if self.reference_eeg_data.get_channel_data(0).shape[0] > 0:
+			self.reference_eeg_data.clear()
 		self.record_clicked(reference=True)
-		if self.vibration_control_checkbox.isChecked():
-			if self.vibration_serial is None:
-				self.vibration_serial = serial.Serial(port=utils.vibration_port(), baudrate=115200, timeout=5000)
-
-			if not self.vibration_serial.isOpen():
-				self.vibration_serial.open()
-			frequency = self.frequency_slider.value()
-			utils.start_vibration(self.vibration_serial, frequency, frequency)
 
 	def read_data(self):
 		if not self.recording and not self.recording_reference:
@@ -256,11 +244,108 @@ class ResonanceFrequencyFinder(QMainWindow):
 				self.eeg_data_buffer.append_data(raw_eeg_data)
 				self.recording_progress_dialog.setValue(self.eeg_data_buffer.get_channel_data(0).shape[0])
 
+	def load_existing_data(self):
+		path = QFileDialog.getExistingDirectory(self, "Root Directory...")
+
+		reference_data = utils.EegData(DataFilter.read_file(path + "/" + global_config.RESONANCE_REFERENCE_FILE_NAME))
+		all_data = utils.EegData(DataFilter.read_file(path + "/" + global_config.RESONANCE_DATA_FILE_NAME))
+
+		reference_data.\
+			filter_all_channels(global_config.SAMPLING_RATE, self.DEFAULT_BANDPASS_MIN, self.DEFAULT_BANDPASS_MAX, True)
+		all_data.\
+			filter_all_channels(global_config.SAMPLING_RATE, self.DEFAULT_BANDPASS_MIN, self.DEFAULT_BANDPASS_MAX, True)
+
+		data_array = all_data.to_row_array()
+
+		# TODO: Assumes the same duration, very problematic
+
+		trial_duration = global_config.SAMPLING_RATE * self.DEFAULT_RECORDING_DURATION
+
+		trial_count = all_data.sample_count() / trial_duration
+
+		count = int((self.DEFAULT_MAX_FREQUENCY - self.DEFAULT_MIN_FREQUENCY) / self.DEFAULT_FREQUENCY_STEP)
+
+		frequencies = np.linspace(self.DEFAULT_MIN_FREQUENCY, self.DEFAULT_MAX_FREQUENCY, count + 1)
+
+		size = int(min(len(frequencies), trial_count))
+
+		x = np.arange(size)
+
+		x_ticks = []
+
+		plot_data = np.zeros((3, size))
+
+		for i in range(size):
+			current_eeg_data = utils.EegData(data_array[:, i * trial_duration:(i + 1) * trial_duration])
+			freq = frequencies[i]
+			x_ticks.append(f"{freq} Hz")
+			freq_band = utils.FrequencyBand(
+				freq - self.DEFAULT_FREQUENCY_PADDING,
+				freq + self.DEFAULT_FREQUENCY_PADDING)
+
+			reference_c3_extractor = reference_data.feature_extractor(
+				self.DEFAULT_C3_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
+
+			reference_cz_extractor = reference_data.feature_extractor(
+				self.DEFAULT_CZ_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
+
+			reference_c4_extractor = reference_data.feature_extractor(
+				self.DEFAULT_C4_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
+
+			data_c3_extractor = current_eeg_data.feature_extractor(
+				self.DEFAULT_C3_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
+
+			data_cz_extractor = current_eeg_data.feature_extractor(
+				self.DEFAULT_CZ_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
+
+			data_c4_extractor = current_eeg_data.feature_extractor(
+				self.DEFAULT_C4_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
+
+			c3_diff, cz_diff, c4_diff = self.amplitude_diff(freq_band, reference_c3_extractor, reference_cz_extractor,
+															reference_c4_extractor, data_c3_extractor,
+															data_cz_extractor, data_c4_extractor)
+
+			plot_data[0, i] = c3_diff
+			plot_data[1, i] = cz_diff
+			plot_data[2, i] = c4_diff
+
+		plt.figure()
+		plt.title("Amplitude Increase")
+
+		plt.bar(x, plot_data[0], width=0.25, label="C3 amplitude increase")
+		plt.bar(x + 0.25, plot_data[1], width=0.25, label="Cz amplitude increase")
+		plt.bar(x + 0.50, plot_data[2], width=0.25, label="C4 amplitude increase")
+
+		plt.xticks(x + 0.25, x_ticks)
+		plt.ylabel("Average Band Amplitude")
+
+		plt.legend(loc="best")
+		plt.show()
+
+	def amplitude_diff(self, freq_band, ref_c3_extractor, ref_cz_extractor, ref_c4_extractor, data_c3_extractor, data_cz_extractor, data_c4_extractor):
+		ref_c3_amplitude = ref_c3_extractor.average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+		ref_cz_amplitude = ref_cz_extractor.average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+		ref_c4_amplitude = ref_c4_extractor.average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+
+		data_c3_amplitude = data_c3_extractor.average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+		data_cz_amplitude = data_cz_extractor.average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+		data_c4_amplitude = data_c4_extractor.average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+
+		c3_diff = data_c3_amplitude - ref_c3_amplitude
+		cz_diff = data_cz_amplitude - ref_cz_amplitude
+		c4_diff = data_c4_amplitude - ref_c4_amplitude
+
+		return c3_diff, cz_diff, c4_diff
+
 	def stop_recording(self, reference: bool = False):
 		if self.reading_timer is not None:
 			self.reading_timer.deleteLater()
-
-		utils.stop_vibration(self.vibration_serial)
 
 		self.board.stop_stream()
 		self.recording = False
@@ -275,9 +360,9 @@ class ResonanceFrequencyFinder(QMainWindow):
 			print("Saving Data")
 			file_name = path + "/"
 			if reference:
-				file_name += "reference.csv"
+				file_name += global_config.RESONANCE_REFERENCE_FILE_NAME
 			else:
-				file_name += "freq_"+str(self.frequency_slider.value())+".csv"
+				file_name += global_config.RESONANCE_DATA_FILE_NAME
 
 			if reference:
 				DataFilter.write_file(self.reference_eeg_data.to_row_array(), file_name, "a")
@@ -293,7 +378,6 @@ class ResonanceFrequencyFinder(QMainWindow):
 			print("Reference data saved...")
 		else:
 			print("Stopping the recording...")
-			selected_frequency = self.frequency_slider.value()
 
 			print("Filtering data...")
 
@@ -301,52 +385,45 @@ class ResonanceFrequencyFinder(QMainWindow):
 				global_config.SAMPLING_RATE, self.DEFAULT_BANDPASS_MIN, self.DEFAULT_BANDPASS_MAX, subtract_average=True
 			)
 
-			freq_band = utils.FrequencyBand(
-				selected_frequency - self.DEFAULT_FREQUENCY_PADDING, selected_frequency + self.DEFAULT_FREQUENCY_PADDING)
+			reference_c3_extractor = self.reference_eeg_data.feature_extractor(
+				self.DEFAULT_C3_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
 
-			c3_freq_amplitude = self.eeg_data_buffer.feature_extractor(self.DEFAULT_C3_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
-				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
-			cz_freq_amplitude = self.eeg_data_buffer.feature_extractor(self.DEFAULT_CZ_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
-				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
-			c4_freq_amplitude = self.eeg_data_buffer.feature_extractor(self.DEFAULT_C4_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
-				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+			reference_cz_extractor = self.reference_eeg_data.feature_extractor(
+				self.DEFAULT_CZ_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
 
-			c3_ref_freq = self.reference_eeg_data.feature_extractor(self.DEFAULT_C3_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
-				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+			reference_c4_extractor = self.reference_eeg_data.feature_extractor(
+				self.DEFAULT_C4_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
 
-			cz_ref_freq = self.reference_eeg_data.feature_extractor(self.DEFAULT_CZ_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
-				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+			data_c3_extractor = self.eeg_data_buffer.feature_extractor(
+				self.DEFAULT_C3_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
 
-			c4_ref_freq = self.reference_eeg_data.feature_extractor(self.DEFAULT_C4_CHANNEL_INDEX, global_config.SAMPLING_RATE).\
-				average_band_amplitude(freq_band, self.DEFAULT_FFT_WINDOW_SIZE)
+			data_cz_extractor = self.eeg_data_buffer.feature_extractor(
+				self.DEFAULT_CZ_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
 
-			c3_amplitude_difference = c3_freq_amplitude - c3_ref_freq
-			cz_amplitude_difference = cz_freq_amplitude - cz_ref_freq
-			c4_amplitude_difference = c4_freq_amplitude - c4_ref_freq
+			data_c4_extractor = self.eeg_data_buffer.feature_extractor(
+				self.DEFAULT_C4_CHANNEL_INDEX, global_config.SAMPLING_RATE
+			)
 
-			print(f"""
-				c3 amplitude diff = {c3_amplitude_difference}
-				cz amplitude diff = {cz_amplitude_difference}
-				c4 amplitude diff = {c4_amplitude_difference}
-			""")
+			selected_freq = self.frequency_slider.value()
 
-			# max_amplitude = max(c3_amplitude_difference, cz_amplitude_difference, c4_amplitude_difference)
-			#
-			# min_amplitude = min(c3_amplitude_difference, cz_amplitude_difference, c4_amplitude_difference)
-			#
-			# if self.amplitude_axis.max() < max_amplitude:
-			# 	self.amplitude_axis.setMax(max_amplitude)
-			#
-			# if self.amplitude_axis.min() > min_amplitude:
-			# 	self.amplitude_axis.setMin(min_amplitude)
+			for i in range(self.c3_amplitude_bar_set.count()):
+				current_freq = int(self.frequencies[i].replace(" Hz", ""))
+				if current_freq == selected_freq:
+					freq_band = utils.FrequencyBand(
+						current_freq - self.DEFAULT_FREQUENCY_PADDING,
+						current_freq + self.DEFAULT_FREQUENCY_PADDING)
 
-			index = (selected_frequency - self.DEFAULT_MIN_FREQUENCY) // self.DEFAULT_FREQUENCY_STEP
+					c3_diff, cz_diff, c4_diff = self.amplitude_diff(freq_band, reference_c3_extractor,reference_cz_extractor, reference_c4_extractor,
+																	data_c3_extractor, data_cz_extractor, data_c4_extractor)
 
-			print("index = {}".format(index))
-
-			self.c3_amplitude_bar_set.replace(index, c3_amplitude_difference)
-			self.cz_amplitude_bar_set.replace(index, cz_amplitude_difference)
-			self.c4_amplitude_bar_set.replace(index, c4_amplitude_difference)
+					self.c3_amplitude_bar_set.replace(i, c3_diff)
+					self.cz_amplitude_bar_set.replace(i, cz_diff)
+					self.c4_amplitude_bar_set.replace(i, c4_diff)
 
 			utils.auto_adjust_axis(self.amplitude_axis,
 								[self.c3_amplitude_bar_set, self.cz_amplitude_bar_set, self.c4_amplitude_bar_set], self.DEFAULT_GRAPH_PADDING)
@@ -381,9 +458,6 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 		self.amplitude_axis.setMin(axis_min)
 		self.amplitude_axis.setMax(axis_max)
-
-	def closeEvent(self, event) -> None:
-		self.vibration_serial.close()
 
 
 def main():

@@ -43,6 +43,7 @@ FFT_WINDOW_SIZES = \
 class ClassifierTrainer(QMainWindow):
 
 	data_set: DataSet
+	classifier: classification.SimpleClassifier
 
 	def __init__(self):
 		super().__init__()
@@ -114,6 +115,13 @@ class ClassifierTrainer(QMainWindow):
 			 ],
 		), 8, 0, 1, 3)
 
+		self.re_reference_checkbox = QCheckBox("Re-Reference data")
+		self.reference_electrode_edit = QLineEdit()
+
+		self.root_layout.addWidget(utils.construct_horizontal_box([
+			self.re_reference_checkbox, QLabel("New reference electrode: "), self.reference_electrode_edit
+		]), 9, 0, 1, 3)
+
 		self.feature_scaling_radio_group = QGroupBox()
 
 		self.selected_feature_scaling_type = data.FeatureScalingType.NO_SCALING
@@ -146,16 +154,16 @@ class ClassifierTrainer(QMainWindow):
 		self.feature_scaling_radio_group.setChecked(False)
 		self.feature_scaling_radio_group.setTitle("Feature Scaling")
 
-		self.root_layout.addWidget(self.feature_scaling_radio_group, 9, 0, 1, 3)
+		self.root_layout.addWidget(self.feature_scaling_radio_group, 10, 0, 1, 3)
 
 		feature_extraction_label = QLabel("<h2> Extract Features </h2>")
 		feature_extraction_label.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
-		self.root_layout.addWidget(feature_extraction_label, 10, 0, 1, 3)
+		self.root_layout.addWidget(feature_extraction_label, 11, 0, 1, 3)
 
 		self.electrodes_edit = QLineEdit()
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
-			QLabel("Include data from electrodes (comma separated):"), self.electrodes_edit]), 11, 0, 1, 2)
+			QLabel("Include data from electrodes (comma separated):"), self.electrodes_edit]), 12, 0, 1, 2)
 
 		self.band_amplitude_checkbox = QCheckBox("Average Band Amplitude")
 
@@ -177,12 +185,12 @@ class ClassifierTrainer(QMainWindow):
 			QLabel("FFT Window Size:"), self.fft_window_combo, QLabel("K value:"), self.k_value_edit,
 			QLabel("Accuracy Threshold (0 - 1):"), self.accuracy_threshold_edit,
 			QLabel("Regularization Parameter:"), self.regularization_edit
-		]), 12, 0, 1, 3)
+		]), 13, 0, 1, 3)
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			self.band_amplitude_checkbox, QLabel("Frequency band from "), self.band_amplitude_min_edit,
 			QLabel(" up to "), self.band_amplitude_max_edit
-		]), 13, 0, 1, 3)
+		]), 14, 0, 1, 3)
 
 		# Extract features as frequency band width and multiple frequency band centers.
 
@@ -192,18 +200,21 @@ class ClassifierTrainer(QMainWindow):
 
 		self.center_frequencies_edit = QLineEdit()
 
+		self.peak_frequency_checkbox = QCheckBox("Peak Frequency")
+
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			self.frequency_bands_checkbox, QLabel("Bandwidth: "), self.band_width_edit,
-			QLabel("Center Frequencies (comma separated): "), self.center_frequencies_edit
-		]), 14, 0, 1, 3)
+			QLabel("Center Frequencies (comma separated): "), self.center_frequencies_edit,
+			self.peak_frequency_checkbox
+		]), 15, 0, 1, 3)
 
 		classifier_type_label = QLabel("<p>Classifier Type:</p>")
 
 		self.classifier_type_combo = QComboBox()
 		self.classifier_type_combo.addItems(AVAILABLE_CLASSIFIERS)
 
-		self.root_layout.addWidget(classifier_type_label, 15, 0, 1, 1)
-		self.root_layout.addWidget(self.classifier_type_combo, 15, 1, 1, 1)
+		self.root_layout.addWidget(classifier_type_label, 16, 0, 1, 1)
+		self.root_layout.addWidget(self.classifier_type_combo, 16, 1, 1, 1)
 
 		self.extract_features_btn = QPushButton("Extract Features")
 		self.extract_features_btn.clicked.connect(self.extract_features_clicked)
@@ -216,7 +227,7 @@ class ClassifierTrainer(QMainWindow):
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			self.extract_features_btn, self.shuffle_data_set, self.train_classifier_btn, self.test_classifier_btn
-		]), 16, 0, 1, 3)
+		]), 17, 0, 1, 3)
 
 		self.performance_report_btn = QPushButton("Performance Report")
 		self.performance_report_btn.clicked.connect(self.generate_performance_report)
@@ -227,9 +238,14 @@ class ClassifierTrainer(QMainWindow):
 		self.visualize_data_btn = QPushButton("Visualize Data")
 		self.visualize_data_btn.clicked.connect(self.visualize_data)
 
+		self.k_fold_edit = QLineEdit()
+		self.k_fold_btn = QPushButton("k fold cross validation")
+		self.k_fold_btn.clicked.connect(self.k_fold_cross_validation_clicked)
+
 		self.root_layout.addWidget(utils.construct_horizontal_box([
-			self.performance_report_btn, self.error_description_btn, self.visualize_data_btn
-		]), 17, 0, 1, 3)
+			self.performance_report_btn, self.error_description_btn, self.visualize_data_btn,
+			self.k_fold_edit, self.k_fold_btn
+		]), 18, 0, 1, 3)
 
 	def set_feature_scaling_type(self, feature_scaling_type: data.FeatureScalingType):
 		self.selected_feature_scaling_type = feature_scaling_type
@@ -264,8 +280,13 @@ class ClassifierTrainer(QMainWindow):
 
 			adaptive_settings = utils.AdaptiveFilterSettings(reference_electrode, frequencies, widths)
 
+		reference_electrode = 0
+
+		if self.re_reference_checkbox.isChecked() and utils.is_integer(self.reference_electrode_edit.text()):
+			reference_electrode = int(self.reference_electrode_edit.text())
+
 		filter_settings = utils.FilterSettings(global_config.SAMPLING_RATE, bandpass_min, bandpass_max, notch_filter=notch_filter,
-											   adaptive_filter_settings=adaptive_settings)
+											   adaptive_filter_settings=adaptive_settings, reference_electrode=reference_electrode)
 
 		if self.root_directory_changed:
 			self.loaded_eeg_data = utils.load_data(self.root_directory_label.text())
@@ -311,6 +332,8 @@ class ClassifierTrainer(QMainWindow):
 		if self.frequency_bands_checkbox.isChecked():
 			band_width = -1
 
+			peak_frequency = self.peak_frequency_checkbox.isChecked()
+
 			if utils.is_float(self.band_width_edit.text()):
 				band_width = float(self.band_width_edit.text())
 
@@ -324,7 +347,7 @@ class ClassifierTrainer(QMainWindow):
 
 			if len(center_frequencies) != 0 and band_width != -1:
 				feature_types.append(
-					utils.FrequencyBandsAmplitudeFeature(center_frequencies, band_width, fft_window_size))
+					utils.FrequencyBandsAmplitudeFeature(center_frequencies, band_width, fft_window_size, peak_frequency))
 
 		feature_extraction_info = utils.FeatureExtractionInfo(sampling_rate, electrode_list)
 
@@ -334,10 +357,38 @@ class ClassifierTrainer(QMainWindow):
 
 		# Extract features
 
+		# TODO: Temporary, only for testing something
+		valid_indexes = \
+			[1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+			 16, 17, 18, 19, 20, 22, 23, 24, 25, 27, 28, 31,
+			 32, 33, 36, 38, 39, 40, 42, 43, 44, 45, 46, 48, 49]
+
+		# new_eeg_data = []
+		#
+		# for i in range(len(eeg_data)):
+		# 	if i in valid_indexes:
+		# 		new_eeg_data.append(eeg_data[i])
+		#
+		# labels = labels[np.array(valid_indexes)]
+		# eeg_data = new_eeg_data
+
 		extracted_data = utils.extract_features(
 			eeg_data, feature_extraction_info, feature_types)
 
 		feature_matrix = data.construct_feature_matrix(extracted_data)
+
+		# for label in np.unique(labels):
+		# 	temp = labels.copy()
+		# 	temp[labels == label] = 1
+		# 	temp[labels != label] = 0
+		# 	count = np.sum(temp)
+		# 	samples = np.empty((count, feature_matrix.shape[1]))
+		# 	sample_index = 0
+		# 	for i in range(feature_matrix.shape[0]):
+		# 		if labels[i] == label:
+		# 			samples[sample_index, :] = feature_matrix[i, :]
+		# 			sample_index += 1
+		# 	DataFilter.write_file(samples.T, self.root_directory_label.text() + "/samples_of_label_{}.csv".format(label), "w")
 
 		self.data_set = DataSet(feature_matrix, labels, add_x0=False, shuffle=True)
 
@@ -441,6 +492,14 @@ class ClassifierTrainer(QMainWindow):
 			print("MLP cross validation accuracy = {}".format(classifier.cross_validation_accuracy()))
 
 		self.root_directory_changed = False
+
+	def k_fold_cross_validation_clicked(self):
+		if self.classifier is not None and self.classifier.get_data_set() is not None:
+			try:
+				k = int(self.k_fold_edit.text())
+				print(self.classifier.k_fold_cross_validation(k))
+			except ValueError:
+				pass
 
 	def generate_performance_report(self):
 		feature_matrix = self.data_set.raw_feature_matrix()
@@ -727,7 +786,7 @@ class OnlineClassifierGui(QMainWindow):
 
 	INTERNAL_BUFFER_EXTRA_DURATION = 2
 
-	INTERNAL_BUFFER_EXTRA_SIZE = 0
+	INTERNAL_BUFFER_EXTRA_SIZE = INTERNAL_BUFFER_EXTRA_DURATION * global_config.SAMPLING_RATE
 
 	CLASS_IMAGE_HEIGHT = 400
 
@@ -737,7 +796,9 @@ class OnlineClassifierGui(QMainWindow):
 
 	DEFAULT_ROBOT_SPEED = 10
 
-	def __init__(self, classifier, filter_settings: utils.FilterSettings,
+	classifier: classification.SimpleClassifier
+
+	def __init__(self, classifier: classification.SimpleClassifier, filter_settings: utils.FilterSettings,
 				feature_extraction_info: utils.FeatureExtractionInfo,
 				feature_types: [],
 				trial_classes: [utils.TrialClass],
@@ -857,7 +918,7 @@ class OnlineClassifierGui(QMainWindow):
 
 	def initialize_data_buffer(self):
 		self.data_buffer = np.zeros((
-				int(self.feature_extraction_info.last_channel - self.feature_extraction_info.first_channel + 1),
+				self.feature_extraction_info.electrode_count(),
 				int(self.INTERNAL_BUFFER_EXTRA_SIZE + self.config.feature_window_size * self.feature_extraction_info.sampling_rate)
 		), dtype=float)
 

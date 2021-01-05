@@ -7,8 +7,8 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import QWidget, QApplication, QCheckBox, QGridLayout, QMainWindow, QComboBox, QVBoxLayout, \
 	QHBoxLayout, QLabel, QPushButton, QColorDialog, QStackedLayout, QLineEdit, QFileDialog
-from brainflow.board_shim import BoardIds, BoardShim, BrainFlowInputParams, LogLevels
-from brainflow.data_filter import DataFilter, FilterTypes, WindowFunctions
+from brainflow.board_shim import BoardShim, BrainFlowInputParams, LogLevels
+from brainflow.data_filter import DataFilter, FilterTypes
 
 import global_config
 import trial_gui
@@ -282,7 +282,8 @@ class FrequencyGraph(QWidget):
 		self.plot_widget.getPlotItem().setLabel(axis="bottom", text="Frequency (Hz)")
 		self.plot_widget.getPlotItem().setLabel(axis="left", text="Amplitude")
 		self.plot_widget.getPlotItem().setLabel(axis="top", text="Frequency Domain")
-		self.plot_widget.setXRange(min=0, max=40)
+		self.plot_widget.setXRange(min=10, max=30)
+		self.plot_widget.setYRange(min=0, max=0.8)
 
 		self.root_layout = QStackedLayout()
 		self.setLayout(self.root_layout)
@@ -476,7 +477,7 @@ class MainWindow(QMainWindow):
 		channels_baseline = 2
 
 		self.channels = []
-		colors = ['r', 'g', 'b', 'k', 'y', 'c', 'm', 'r']
+		colors = ['b', 'r', (106, 13, 173), (169,169,169), (255,140,0), 'k', 'k', 'k']
 
 		row = channels_baseline
 		column = 0

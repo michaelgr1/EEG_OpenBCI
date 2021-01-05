@@ -221,7 +221,7 @@ class FeatureExtractor:
 				window_data = self.channel_data[start_index:end_index]
 
 				# TODO: Find out whether a window function should be used
-				amplitudes = abs(DataFilter.perform_fft(window_data[:window_length], WindowFunctions.NO_WINDOW.value))
+				amplitudes = abs(DataFilter.perform_fft(window_data[:window_length], WindowFunctions.HAMMING.value))
 				amplitudes = amplitudes * (1 / window_length)
 				fft_average.add_values(amplitudes)
 
@@ -268,6 +268,27 @@ class FeatureExtractor:
 					print("Closest freq = {}".format(frequencies[i - 1]))
 					return amplitudes[i - 1]
 
+	def peak_band_amplitude(self, freq_band: FrequencyBand, window_size: float = 0) -> float:
+		"""
+		Find the highest frequency peak in the given frequency band
+		:param freq_band: The desired frequency band
+		:param window_size: The fft window size
+		:return: The highest frequency power using FFT
+		"""
+
+		min_freq = freq_band.min_frequency
+		max_freq = freq_band.max_frequency
+
+		frequencies, amplitudes = self.fft(window_size)
+
+		amplitudes_in_band = []
+
+		for i in range(len(frequencies)):
+			if min_freq <= frequencies[i] <= max_freq:
+				amplitudes_in_band.append(amplitudes[i])
+
+		return highest_peak(amplitudes_in_band)
+
 	def average_band_amplitude(self, freq_band: FrequencyBand, window_size: float = 0) -> float:
 		""""
 			Computes the average frequency amplitude for all the frequencies between
@@ -279,30 +300,10 @@ class FeatureExtractor:
 
 		frequencies, amplitudes = self.fft(window_size)
 
-		min_freq_index = -1
-		max_freq_index = -1
-
-		for i in range(len(frequencies)):
-			if frequencies[i] == min_freq:
-				min_freq_index = i
-
-			if frequencies[i] > min_freq and min_freq_index == -1:
-				if i - 1 >= 0:
-					min_freq_index = i - 1
-				else:
-					min_freq_index = i
-
-			if frequencies[i] == max_freq:
-				max_freq_index = i
-				break
-
-			if frequencies[i] > max_freq and max_freq_index == -1:
-				max_freq_index = i
-
 		average = AccumulatingAverage()
 
 		for i in range(len(frequencies)):
-			if min_freq_index <= i <= max_freq_index:
+			if min_freq <= frequencies[i] <= max_freq:
 				average.add_value(amplitudes[i])
 
 		return average.compute_average()
@@ -372,6 +373,12 @@ class EegData:
 
 		return data
 
+	def sample_count(self) -> int:
+		return self.channels[0].shape[0]
+
+	def channel_count(self) -> int:
+		return len(self.channels)
+
 
 class FeatureVector:
 
@@ -438,7 +445,8 @@ class FilterSettings:
 					subtract_average: bool = True,
 					notch_filter: bool = True,
 					notch_freq: float = 50,
-					adaptive_filter_settings: AdaptiveFilterSettings = None):
+					adaptive_filter_settings: AdaptiveFilterSettings = None,
+					reference_electrode: int = 0):
 		self.sampling_rate = sampling_rate
 		self.low_pass = low_pass
 		self.high_pass = high_pass
@@ -446,8 +454,14 @@ class FilterSettings:
 		self.notch_filter = notch_filter
 		self.notch_freq = notch_freq
 		self.adaptive_filter_settings = adaptive_filter_settings
+		self.reference_channel = reference_electrode - 1
 
 	def apply(self, data: np.ndarray) -> np.ndarray:
+
+		if self.reference_channel >= 0:
+			print("Re-referencing data")
+			data = data - data[self.reference_channel, :]
+
 		eeg_data = EegData(data)
 		eeg_data.filter_all_channels(self.sampling_rate, self.low_pass, self.high_pass, self.subtract_average,
 										self.notch_filter, self.notch_freq)
@@ -476,10 +490,11 @@ class FrequencyBandsAmplitudeFeature:
 		It does not provide any way to compute it.
 	"""
 
-	def __init__(self, center_frequencies: [], band_width: float, fft_window_size: float):
+	def __init__(self, center_frequencies: [], band_width: float, fft_window_size: float, peak_amplitude: bool):
 		self.fft_window_size = fft_window_size
 		self.center_frequencies = center_frequencies
 		self.band_width = band_width
+		self.peak_amplitude = peak_amplitude
 
 	def frequency_band_at(self, index: int) -> FrequencyBand:
 		min_freq = self.center_frequencies[index] - self.band_width / 2
@@ -493,6 +508,9 @@ class FeatureExtractionInfo:
 	def __init__(self, sampling_rate: int, electrodes_list: [int]):
 		self.sampling_rate = sampling_rate
 		self.electrodes_list = electrodes_list
+
+	def electrode_count(self) -> int:
+		return len(self.electrodes_list)
 
 
 class Direction(Enum):
@@ -737,6 +755,7 @@ def extract_features(data_list: [EegData], info: FeatureExtractionInfo, feature_
 	extracted_data = []
 
 	for i in range(len(data_list)):  # For each EegData item in the list
+
 		feature_vector = FeatureVector()
 
 		for electrode in info.electrodes_list:  # For each channel
@@ -763,9 +782,12 @@ def extract_features(data_list: [EegData], info: FeatureExtractionInfo, feature_
 
 						freq_band = feature_type.frequency_band_at(freq_index)
 
-						band_amplitude = feature_extractor.average_band_amplitude(freq_band, fft_window_size)
-
-						feature_vector.append_feature(band_amplitude)
+						if feature_type.peak_amplitude:
+							peak_frequency_amplitude = feature_extractor.peak_band_amplitude(freq_band, fft_window_size)
+							feature_vector.append_feature(peak_frequency_amplitude)
+						else:
+							band_amplitude = feature_extractor.average_band_amplitude(freq_band, fft_window_size)
+							feature_vector.append_feature(band_amplitude)
 
 		extracted_data.append(feature_vector)
 
@@ -806,6 +828,36 @@ def closest_power_of_two(number: int):
 	for i in range(0, number):
 		if pow(2, i) > number:
 			return i - 1
+
+
+def highest_peak(values: []):
+	#  Not a very efficient algorithm but should work fine for a small input size
+
+	if len(values) == 1:
+		return values[0]
+
+	max_peak = values[0]
+
+	for i in range(len(values)):
+		current = values[i]
+		if i == 0:
+			next_value = values[i + 1]
+			if current >= next_value:  # Peak
+				if current > max_peak:
+					max_peak = current
+		elif i == (len(values) - 1):
+			previous_value = values[i-1]
+			if current >= previous_value:
+				if current > max_peak:
+					max_peak = current
+		else:
+			previous_value = values[i-1]
+			next_value = values[i+1]
+
+			if previous_value <= current >= next_value:
+				if current > max_peak:
+					max_peak = current
+	return max_peak
 
 
 def sample_to_second(sample: int, board_id: int):
@@ -956,7 +1008,7 @@ def stop_vibration(vibration_serial):
 		vibration_serial.write(packet)
 
 
-def start_vibration(vibration_serial, left_frequency, right_frequency):
+def start_vibration(vibration_serial, left_frequency, right_frequency, left_power: int = 204, right_power: int = 204):
 	if vibration_serial is not None and vibration_serial.isOpen():
 
 		print(f"Starting vibration with left freq of {left_frequency} Hz and right freq of {right_frequency} Hz")
@@ -977,7 +1029,11 @@ def start_vibration(vibration_serial, left_frequency, right_frequency):
 		packet.append(0x40)
 		packet.append(0x00)
 		packet.append(0x00)
-		packet.append(0xcc)
+		if left_power < 0:
+			left_power = 0
+		if left_power > 255:
+			left_power = 255
+		packet.append(left_power)
 		vibration_serial.write(packet)
 
 		time.sleep(0.1)
@@ -992,7 +1048,11 @@ def start_vibration(vibration_serial, left_frequency, right_frequency):
 		packet.append(0x40)
 		packet.append(0x00)
 		packet.append(0x00)
-		packet.append(0xcc)
+		if right_power < 0:
+			right_power = 0
+		if right_power > 255:
+			right_power = 255
+		packet.append(right_power)
 		vibration_serial.write(packet)
 
 

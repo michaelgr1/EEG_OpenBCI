@@ -1,8 +1,11 @@
+from abc import ABC, abstractmethod
+
 import numpy as np
 from sklearn import svm
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.neural_network import MLPClassifier
 
+import data
 import performance
 import statistics
 import utils
@@ -37,10 +40,109 @@ def shifted_sigmoid(z: np.ndarray, shift: float):
     return 1 / (1 + np.exp(-(z - shift)))
 
 
+def k_fold_data_sets(data_set: data.DataSet, k: int) -> [data.DataSet]:
+    data_matrix = data_set.raw_feature_matrix()
+    labels = data_set.feature_matrix_labels()
+    total_size = data_matrix.shape[0]
+    testing_size = int(total_size / k)
+
+    indexes = np.linspace(0, total_size - 1, total_size, dtype=int)
+
+    data_sets = []
+
+    for i in range(0, k):
+        test_start_index = testing_size * i
+        test_end_index = test_start_index + testing_size - 1
+
+        test_indexes = np.linspace(test_start_index, test_end_index, testing_size, dtype=int)
+
+        train_indexes = []
+
+        for j in range(0, total_size):
+            if test_start_index <= j <= test_end_index:
+                continue
+            else:
+                train_indexes.append(j)
+
+        sub_data_set = data.DataSet(data_matrix, labels, shuffle=False, add_x0=data_set.add_x0)
+
+        test_set = data_matrix[test_indexes, :]
+        test_labels = labels[test_indexes, :]
+
+        training_set = data_matrix[train_indexes, :]
+        training_labels = labels[train_indexes, :]
+
+        sub_data_set.set_training_set(training_set, training_labels)
+        sub_data_set.set_test_set(test_set, test_labels)
+        sub_data_set.set_cross_validation_set(None, None)
+
+        sub_data_set.apply_feature_scaling(data_set.feature_scalar.scaling_type)
+
+        data_sets.append(sub_data_set)
+
+    return data_sets
+
+
 # TODO: Add a save and reconstruct option for all classifiers
 
 
-class LogisticRegressionClassifier:
+class SimpleClassifier(ABC):
+
+    @abstractmethod
+    def predict(self, x: np.ndarray):
+        pass
+
+    @abstractmethod
+    def classify(self, x: np.ndarray):
+        pass
+
+    @abstractmethod
+    def train(self):
+        pass
+
+    @abstractmethod
+    def test_set_accuracy(self):
+        pass
+
+    @abstractmethod
+    def cross_validation_accuracy(self):
+        pass
+
+    @abstractmethod
+    def training_set_accuracy(self):
+        pass
+
+    @abstractmethod
+    def k_fold_cross_validation(self, k: int = 10) -> (float, float):
+        pass
+
+    @abstractmethod
+    def get_data_set(self) -> data.DataSet:
+        pass
+
+    @abstractmethod
+    def set_data_set(self, data_set: data.DataSet):
+        pass
+
+
+def k_fold_cross_validation(classifier: SimpleClassifier, k: int) -> (float, float):
+    data_sets = k_fold_data_sets(classifier.get_data_set(), k)
+
+    original_data_set = classifier.get_data_set()
+
+    training_average = utils.AccumulatingAverage()
+    testing_average = utils.AccumulatingAverage()
+
+    for sub_data_set in data_sets:
+        classifier.set_data_set(sub_data_set)
+        classifier.train()
+        training_average.add_value(classifier.training_set_accuracy())
+        testing_average.add_value(classifier.test_set_accuracy())
+
+    return training_average.compute_average(), testing_average.compute_average()
+
+
+class LogisticRegressionClassifier(SimpleClassifier):
     NAME = "logistic_regression"
 
     def __init__(self, data_matrix: np.ndarray, labels: np.ndarray,
@@ -106,7 +208,7 @@ class LogisticRegressionClassifier:
                 cost.append(
                     self.compute_cost(self.data_set.get_training_set(), self.data_set.training_set_labels, raw=False)[0, 0])
 
-                print("Training, iteration #{}".format(i))
+                # print("Training, iteration #{}".format(i))
 
                 translated_labels = self.label_translator.translate_all(self.data_set.training_set_labels)
 
@@ -179,6 +281,15 @@ class LogisticRegressionClassifier:
             self.classify(self.data_set.get_training_set(), raw=False), self.data_set.training_set_labels
         )
 
+    def k_fold_cross_validation(self, k: int = 10) -> (float, float):
+        return k_fold_cross_validation(self, k)
+
+    def get_data_set(self) -> data.DataSet:
+        return self.data_set
+
+    def set_data_set(self, data_set: data.DataSet):
+        self.data_set = data_set
+
     def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
         return performance.ClassifierPerformanceMeasure(
             self.training_set_accuracy(),
@@ -213,7 +324,8 @@ class LogisticRegressionClassifier:
         return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
 
 
-class KNearestNeighborsClassifier:
+class KNearestNeighborsClassifier(SimpleClassifier):
+
     NAME = "k_nearest_neighbors"
 
     def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, k: int, shuffle: bool = True):
@@ -250,6 +362,12 @@ class KNearestNeighborsClassifier:
         distances.sort()
 
         return distances
+
+    def predict(self, x: np.ndarray):
+        raise NotImplemented()
+
+    def train(self):
+        pass
 
     def classify(self, x: np.ndarray, k: int = -1, raw: bool = True):
 
@@ -378,6 +496,15 @@ class KNearestNeighborsClassifier:
         return classification_accuracy(self.classify(self.data_set.get_training_set(), k, raw=False),
                                        self.data_set.training_set_labels)
 
+    def k_fold_cross_validation(self, k: int = 10) -> (float, float):
+        return k_fold_cross_validation(self, k)
+
+    def get_data_set(self) -> data.DataSet:
+        return self.data_set
+
+    def set_data_set(self, data_set: data.DataSet):
+        self.data_set = data_set
+
     def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
         return performance.ClassifierPerformanceMeasure(
             self.training_set_accuracy(),
@@ -445,7 +572,7 @@ class NeuralNetworkStructure:
             return None
 
 
-class PerceptronClassifier:
+class PerceptronClassifier(SimpleClassifier):
     NAME = "perceptron"
 
     def __init__(self, data_matrix: np.ndarray, labels: np.ndarray,
@@ -647,6 +774,15 @@ class PerceptronClassifier:
             self.classify(self.data_set.get_training_set(), False), self.data_set.training_set_labels
         )
 
+    def k_fold_cross_validation(self, k: int = 10) -> (float, float):
+        return k_fold_cross_validation(self, k)
+
+    def get_data_set(self) -> data.DataSet:
+        return self.data_set
+
+    def set_data_set(self, data_set: data.DataSet):
+        self.data_set = data_set
+
     def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
         return performance.ClassifierPerformanceMeasure(
             self.training_set_accuracy(),
@@ -681,7 +817,8 @@ class PerceptronClassifier:
         return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
 
 
-class SvmClassifier:
+class SvmClassifier(SimpleClassifier):
+
     NAME = "svm"
 
     def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, regularization: float = 1, shuffle: bool = True):
@@ -691,6 +828,9 @@ class SvmClassifier:
     def train(self):
         self.classifier.fit(self.data_set.get_training_set(), self.data_set.training_set_labels.flatten())
 
+    def predict(self, x: np.ndarray):
+        raise NotImplemented()
+
     def classify(self, x: np.ndarray):
         return self.classifier.predict(x)
 
@@ -702,6 +842,15 @@ class SvmClassifier:
 
     def cross_validation_accuracy(self) -> float:
         return self.classifier.score(self.data_set.get_cross_validation_set(), self.data_set.cross_validation_labels.flatten())
+
+    def k_fold_cross_validation(self, k: int = 10) -> (float, float):
+        return k_fold_cross_validation(self, k)
+
+    def get_data_set(self) -> data.DataSet:
+        return self.data_set
+
+    def set_data_set(self, data_set: data.DataSet):
+        self.data_set = data_set
 
     def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
         return performance.ClassifierPerformanceMeasure(
@@ -737,7 +886,7 @@ class SvmClassifier:
         return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
 
 
-class LdaClassifier:
+class LdaClassifier(SimpleClassifier):
     NAME = "lda"
 
     def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, shuffle: bool = True):
@@ -747,6 +896,9 @@ class LdaClassifier:
     def train(self):
         self.classifier.fit(self.data_set.get_training_set(), self.data_set.training_set_labels.flatten())
 
+    def predict(self, x: np.ndarray):
+        raise NotImplemented()
+
     def classify(self, x: np.ndarray):
         return self.classifier.predict(x)
 
@@ -758,6 +910,15 @@ class LdaClassifier:
 
     def cross_validation_accuracy(self) -> float:
         return self.classifier.score(self.data_set.get_cross_validation_set(), self.data_set.cross_validation_labels.flatten())
+
+    def k_fold_cross_validation(self, k: int = 10) -> (float, float):
+        return k_fold_cross_validation(self, k)
+
+    def get_data_set(self) -> data.DataSet:
+        return self.data_set
+
+    def set_data_set(self, data_set: data.DataSet):
+        self.data_set = data_set
 
     def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
         return performance.ClassifierPerformanceMeasure(
@@ -793,15 +954,19 @@ class LdaClassifier:
         return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
 
 
-class ANNClassifier:
+class ANNClassifier(SimpleClassifier):
     NAME = "MLP Classifier"
 
     def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, shuffle: bool = True):
         self.data_set = DataSet(data_matrix, labels, shuffle=shuffle, add_x0=False)
-        self.classifier = MLPClassifier(solver="lbfgs", alpha=1e-5, hidden_layer_sizes=(5), random_state=1)
+        size = self.data_set.feature_count()
+        self.classifier = MLPClassifier(solver="lbfgs", alpha=1e-5, hidden_layer_sizes=(size, size), random_state=1)
 
     def train(self):
         self.classifier.fit(self.data_set.get_training_set(), self.data_set.training_set_labels.flatten())
+
+    def predict(self, x: np.ndarray):
+        raise NotImplemented()
 
     def classify(self, x: np.ndarray):
         return self.classifier.predict(x)
@@ -815,6 +980,15 @@ class ANNClassifier:
     def cross_validation_accuracy(self) -> float:
         return self.classifier.score(self.data_set.get_cross_validation_set(),
                                      self.data_set.cross_validation_labels.flatten())
+
+    def k_fold_cross_validation(self, k: int = 10) -> (float, float):
+        return k_fold_cross_validation(self, k)
+
+    def get_data_set(self) -> data.DataSet:
+        return self.data_set
+
+    def set_data_set(self, data_set: data.DataSet):
+        self.data_set = data_set
 
     def performance_measure(self) -> performance.ClassifierPerformanceMeasure:
         return performance.ClassifierPerformanceMeasure(

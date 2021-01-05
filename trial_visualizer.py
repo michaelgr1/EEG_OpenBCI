@@ -11,15 +11,15 @@ RIGHT_FREQ = 24
 
 BANDWIDTH = 0.2
 
-LEFT2 = 4
+LEFT2 = 5
 
-LEFT1 = 5
+LEFT1 = 4
 
 CENTER = 3
 
-RIGHT1 = 1
+RIGHT1 = 2
 
-RIGHT2 = 2
+RIGHT2 = 1
 
 L_TO_R = [LEFT2, LEFT1, CENTER, RIGHT1, RIGHT2]
 
@@ -31,7 +31,7 @@ NAMES = {
 	LEFT2: "L2"
 }
 
-WINDOW_SIZE = 3
+WINDOW_SIZE = 2.048
 
 
 def main():
@@ -46,7 +46,7 @@ def main():
 	print("Loading data...")
 
 	raw_data = utils.load_data(path)
-	filter_settings = utils.FilterSettings(250, 13, 28)
+	filter_settings = utils.FilterSettings(250, 15, 35, reference_electrode=3)
 
 	print("Slicing and filtering...")
 	eeg_data, labels, fs, trial_classes = utils.slice_and_filter_data(path, filter_settings, raw_data)
@@ -62,12 +62,16 @@ def main():
 			if trial_class.label == label:
 				label_to_name[label] = trial_class.name
 				break
+	print("Loading done")
 
 	while True:
 		print("""Choose an option:
 		1 - FFT
 		2 - Bar Chart
 		3 - All class FFT
+		4 - Statistics
+		5 - FFT Everything
+		6 - Class Average
 		0 - Quit""")
 
 		option = int(input())
@@ -157,6 +161,122 @@ def main():
 					ax[i, j].plot(t, np.ones_like(t) * f23_average.compute_average(), label="23 Hz average")
 					ax[i, j].legend()
 			plt.show()
+		elif option == 4:
+
+			correct_ssl_count = 0
+			correct_ssr_count = 0
+
+			ssl_sum = 0
+			ssr_sum = 0
+
+			correct_indexes = []
+
+			for i in range(len(eeg_data)):
+				l2_extractor = eeg_data[i].feature_extractor(LEFT2 - 1, fs)
+				l1_extractor = eeg_data[i].feature_extractor(LEFT1 - 1, fs)
+				r1_extractor = eeg_data[i].feature_extractor(RIGHT1 - 1, fs)
+				r2_extractor = eeg_data[i].feature_extractor(RIGHT2 - 1, fs)
+
+				if label_to_name[labels[i]] == "SS-L":
+					amplitudes = [
+						l2_extractor.peak_band_amplitude(left_frequency_band, WINDOW_SIZE),
+						l1_extractor.peak_band_amplitude(left_frequency_band, WINDOW_SIZE),
+						r1_extractor.peak_band_amplitude(left_frequency_band, WINDOW_SIZE),
+						r2_extractor.peak_band_amplitude(left_frequency_band, WINDOW_SIZE)
+					]
+
+					max_amplitude = max(amplitudes)
+
+					for j in range(len(amplitudes)):
+						if amplitudes[j] == max_amplitude:
+							if j == 2 or j == 3:  # max amplitude on r1 or r2
+								correct_ssl_count += 1
+								correct_indexes.append(i)
+					ssl_sum += 1
+				elif label_to_name[labels[i]] == "SS-R":
+					amplitudes = [
+						l2_extractor.peak_band_amplitude(right_frequency_band, WINDOW_SIZE),
+						l1_extractor.peak_band_amplitude(right_frequency_band, WINDOW_SIZE),
+						r1_extractor.peak_band_amplitude(right_frequency_band, WINDOW_SIZE),
+						r2_extractor.peak_band_amplitude(right_frequency_band, WINDOW_SIZE)
+					]
+
+					max_amplitude = max(amplitudes)
+
+					for j in range(len(amplitudes)):
+						if amplitudes[j] == max_amplitude:
+							if j == 0 or j == 1:  # max amplitude on l2 or l1
+								correct_ssr_count += 1
+								correct_indexes.append(i)
+					ssr_sum += 1
+
+			print("From SS-L {}% of trials have higher amplitude in electrodes R2 or R1".format(correct_ssl_count / ssl_sum * 100))
+			print("From SS-R {}% of trials have higher amplitude in electrodes L2 or L1".format(correct_ssr_count / ssr_sum * 100))
+
+			print(correct_indexes)
+		elif option == 5:
+
+			all_data = utils.EegData()
+
+			for i in range(len(eeg_data)):
+				all_data.append_data(eeg_data[i].to_row_array())
+
+			plt.figure()
+
+			data_row_array = all_data.to_row_array()
+
+			win_size_in_samples = int(WINDOW_SIZE * 250)
+
+			for electrode in L_TO_R:
+				extractor = all_data.feature_extractor(electrode - 1, fs)
+				freq, power = extractor.fft(WINDOW_SIZE)
+
+				data = data_row_array[electrode - 1, :]
+
+				plt.plot(freq, power, label=NAMES[electrode] + " - Custom Welch")
+
+				# power, freq = DataFilter.get_psd_welch\
+				# 	(data, win_size_in_samples, int(win_size_in_samples / 2), 250, WindowFunctions.HAMMING.value)
+				#
+				# plt.plot(freq, power, label=NAMES[electrode] + " - Library Welch")
+
+			plt.xlabel("Frequency (Hz)")
+			plt.ylabel("Amplitude")
+			plt.title("Re-referenced FFT for entire trial")
+			plt.legend(loc="best")
+
+			plt.show()
+		elif option == 6:
+			averages = {}
+
+			for label in np.unique(labels):
+				averages[label] = {}
+				for electrode in L_TO_R:
+					averages[label][electrode] = utils.AccumulatingAverages()
+
+			frequency = None
+
+			for i in range(len(eeg_data)):
+				for electrode in L_TO_R:
+					extractor = eeg_data[i].feature_extractor(electrode - 1, fs)
+					frequency, power = extractor.fft(WINDOW_SIZE)
+					averages[labels[i]][electrode].add_values(power)
+
+			plt.figure()
+
+			for label in np.unique(labels):
+				label_str = label_to_name[label]
+				for electrode in L_TO_R:
+					name = NAMES[electrode]
+					plt.plot(frequency, averages[label][electrode].compute_average(), label=f"{label_str} {name} average")
+
+			plt.title("Class Averages")
+			plt.xlabel("Frequency")
+			plt.ylabel("Amplitude")
+
+			plt.legend(loc="best")
+			plt.show()
+
 		elif option == 0:
 			break
 

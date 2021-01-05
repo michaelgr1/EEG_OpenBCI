@@ -228,15 +228,50 @@ class DataSet:
 
 		self.scaled_test_set = self.process_data(self.raw_test_set)
 
+	def set_training_set(self, training_set: np.ndarray, labels: np.ndarray):
+		if training_set is None:
+			self.raw_training_set = None
+			self.training_set_labels = None
+			self.scaled_training_set = None
+			return
+		self.raw_training_set = training_set
+		self.training_set_labels = labels
+		self.scaled_training_set = self.process_data(self.raw_training_set)
+
+	def set_cross_validation_set(self, cross_validation_set: np.ndarray, labels: np.ndarray):
+		if cross_validation_set is None:
+			self.raw_cross_validation_set = None
+			self.cross_validation_labels = None
+			self.scaled_training_set = None
+			return
+		self.raw_cross_validation_set = cross_validation_set
+		self.cross_validation_labels = labels
+		self.scaled_cross_validation_set = self.process_data(self.raw_cross_validation_set)
+
+	def set_test_set(self, test_set: np.ndarray, labels: np.ndarray):
+		if test_set is None:
+			self.raw_test_set = None
+			self.test_set_labels = None
+			self.scaled_test_set = None
+			return
+		self.raw_test_set = test_set
+		self.test_set_labels = labels
+		self.scaled_test_set = self.process_data(self.raw_test_set)
+
 	def apply_feature_scaling(self, scaling_type: FeatureScalingType):
 		if scaling_type != self.feature_scalar.scaling_type:
 			self.feature_scalar.scaling_type = scaling_type
 			self.reprocess_subsets()
 
 	def reprocess_subsets(self):
-		self.scaled_training_set = self.process_data(self.raw_training_set)
-		self.scaled_cross_validation_set = self.process_data(self.raw_cross_validation_set)
-		self.scaled_test_set = self.process_data(self.raw_test_set)
+		if self.raw_training_set is not None:
+			self.scaled_training_set = self.process_data(self.raw_training_set)
+
+		if self.raw_cross_validation_set is not None:
+			self.scaled_cross_validation_set = self.process_data(self.raw_cross_validation_set)
+
+		if self.raw_test_set is not None:
+			self.scaled_test_set = self.process_data(self.raw_test_set)
 
 	def get_training_set(self) -> np.ndarray:
 		"""
