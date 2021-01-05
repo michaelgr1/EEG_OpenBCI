@@ -615,16 +615,23 @@ def obtain_sampling_rate_from_slice_index(root_directory_path: str) -> int:
 	return sampling_rate
 
 
-def obtain_trial_classes_from_slice_index(root_directory_path: str) -> [TrialClass]:
-	file = open(root_directory_path + f"/{global_config.SLICE_INDEX_FILE_NAME}", "r")
-	file.readline()  # Discard sampling rate
+def obtain_trial_classes_from_slice_index(root_directories: str) -> [TrialClass]:
+	unique_trial_strings = []
 
 	trial_classes = []
 
-	trial_classes_str = file.readline().split(",")
+	for path in root_directories:
+		file = open(path + f"/{global_config.SLICE_INDEX_FILE_NAME}", "r")
+		file.readline()  # Discard sampling rate
 
-	for string in trial_classes_str:
-		trial_classes.append(trial_class_from_string(string))
+		trial_classes_str = file.readline().split(",")
+
+		for string in trial_classes_str:
+			if string not in unique_trial_strings:
+				unique_trial_strings.append(string)
+
+	for trial_str in unique_trial_strings:
+		trial_classes.append(trial_class_from_string(trial_str))
 
 	return trial_classes
 
@@ -665,21 +672,25 @@ def obtain_trial_length_from_slice_index(root_directory_path: str) -> float:
 	return length_in_samples / sampling_rate
 
 
-def load_data(root_directory_path: str) -> np.ndarray:
-	data_file_path = root_directory_path + f"/{global_config.EEG_DATA_FILE_NAME}"
+def load_data(root_directories: [str]) -> [np.ndarray]:
 
-	print(data_file_path)
+	raw_unsliced_data = []
 
-	raw_unsliced_data = DataFilter.read_file(data_file_path)
+	for path in root_directories:
+		data_file_path = path + f"/{global_config.EEG_DATA_FILE_NAME}"
+
+		print(data_file_path)
+
+		raw_unsliced_data.append(DataFilter.read_file(data_file_path))
 
 	return raw_unsliced_data
 
 
-def slice_and_filter_data(root_directory_path: str, filter_settings: FilterSettings,
-							raw_eeg_data: np.ndarray = None) -> ([EegData], [int], int, [TrialClass]):
+def slice_and_filter_data(root_directories: [str], filter_settings: FilterSettings,
+							raw_eeg_data: [np.ndarray] = None) -> ([EegData], [int], int, [TrialClass]):
 
 	""""
-		Reads the data from the root directory and slices it according to the instructions in the slice index file.
+		Reads the data from the root directories and slices it according to the instructions in the slice index file.
 		Returns a tuple contain a list of EegData object as its first element, another list of the same size containing
 		their corresponding labels, an integer specifying the sampling rate which was used to record the given data, and a list
 		or trial class objects which correspond to the used trial classes and contain their names and image paths.
@@ -690,48 +701,63 @@ def slice_and_filter_data(root_directory_path: str, filter_settings: FilterSetti
 	if raw_eeg_data is not None:
 		raw_unsliced_data = raw_eeg_data
 	else:
-		raw_unsliced_data = load_data(root_directory_path)
+		raw_unsliced_data = load_data(root_directories)
 
-	slice_index_file = open(root_directory_path + f"/{global_config.SLICE_INDEX_FILE_NAME}", "r")
+	first_slice_index_file = open(root_directories[0] + f"/{global_config.SLICE_INDEX_FILE_NAME}", "r")
 
-	sampling_rate = int(slice_index_file.readline())
+	sampling_rate = int(first_slice_index_file.readline())
+
+	first_slice_index_file.close()
 
 	filter_settings.sampling_rate = sampling_rate
-
-	filtered_unsliced_data = filter_settings.apply(raw_unsliced_data)
 
 	data_list = []
 	classes_list = []
 
 	trial_classes = []
 
-	row_count = 1  # Sampling rate has already been read
+	unique_trial_classes_strings = []
 
-	while True:
+	for i in range(len(root_directories)):
+		path = root_directories[i]
 
-		row_count += 1
+		raw_data = raw_unsliced_data[i]
 
-		line = slice_index_file.readline()
+		filtered_unsliced_data = filter_settings.apply(raw_data)
 
-		if not line:
-			break
+		row_count = 0
 
-		if row_count == 2:  # Trial Classes
-			trial_classes_str = line.split(",")
+		slice_index_file = open(path + f"/{global_config.SLICE_INDEX_FILE_NAME}", "r")
 
-			for string in trial_classes_str:
-				trial_classes.append(trial_class_from_string(string))
+		while True:
 
-		if row_count >= 3:
-			elements = line.split(",")
-			label = int(elements[0])
-			start_index = int(elements[1])
-			end_index = int(elements[2])
+			row_count += 1
 
-			data_list.append(EegData(filtered_unsliced_data[:, start_index:end_index]))
-			classes_list.append(label)
+			line = slice_index_file.readline()
 
-	slice_index_file.close()
+			if not line:
+				break
+
+			if row_count == 2:  # Trial Classes
+				trial_classes_str = line.split(",")
+
+				for string in trial_classes_str:
+					if string not in unique_trial_classes_strings:
+						unique_trial_classes_strings.append(string)
+
+			if row_count >= 3:
+				elements = line.split(",")
+				label = int(elements[0])
+				start_index = int(elements[1])
+				end_index = int(elements[2])
+
+				data_list.append(EegData(filtered_unsliced_data[:, start_index:end_index]))
+				classes_list.append(label)
+
+		slice_index_file.close()
+
+	for trial_class_str in unique_trial_classes_strings:
+		trial_classes.append(trial_class_from_string(trial_class_str))
 
 	return data_list, classes_list, sampling_rate, trial_classes
 

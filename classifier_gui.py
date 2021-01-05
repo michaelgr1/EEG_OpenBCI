@@ -56,6 +56,8 @@ class ClassifierTrainer(QMainWindow):
 		self.feature_types = []
 		self.trial_classes = []
 
+		self.root_directories = []
+
 		self.root_widget = QWidget()
 		self.root_layout = QGridLayout()
 		self.root_layout.setAlignment(PyQt5.QtCore.Qt.AlignTop | PyQt5.QtCore.Qt.AlignVCenter)
@@ -63,7 +65,7 @@ class ClassifierTrainer(QMainWindow):
 		self.setCentralWidget(self.root_widget)
 
 		# Data which should not get loaded every train. Saved globally to avoid redundancy.
-		self.loaded_eeg_data = np.empty(0)
+		self.loaded_eeg_data = []
 
 		# Title
 		title = QLabel("<h1> Train A Classifier </h1>")
@@ -76,15 +78,16 @@ class ClassifierTrainer(QMainWindow):
 		load_training_data_label.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
 		self.root_layout.addWidget(load_training_data_label, 1, 0, 1, 3)
 
-		self.root_layout.addWidget(QLabel("Root Directory: "), 2, 0, 1, 1)
+		self.root_directory_label = QLabel("path to directories")
 
-		self.root_directory_label = QLabel("path to directory")
-		self.root_layout.addWidget(self.root_directory_label, 2, 1, 1, 1)
-
-		self.select_root_directory = QPushButton("Select/Change")
+		self.add_root_directory = QPushButton("Add path")
+		self.pop_root_directory = QPushButton("Pop path")
 		self.root_directory_changed = True
-		self.select_root_directory.clicked.connect(self.select_root_directory_path)
-		self.root_layout.addWidget(self.select_root_directory, 2, 2, 1, 1)
+		self.add_root_directory.clicked.connect(self.add_root_directory_clicked)
+		self.pop_root_directory.clicked.connect(self.pop_root_directory_clicked)
+		self.root_layout.addWidget(utils.construct_horizontal_box([
+			QLabel("Root Directories: "), self.root_directory_label, self.add_root_directory, self.pop_root_directory
+		]), 2, 0, 2, 1)
 
 		pre_processing_label = QLabel("<h2> Pre-Process Data </h2>")
 		pre_processing_label.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
@@ -289,10 +292,10 @@ class ClassifierTrainer(QMainWindow):
 											   adaptive_filter_settings=adaptive_settings, reference_electrode=reference_electrode)
 
 		if self.root_directory_changed:
-			self.loaded_eeg_data = utils.load_data(self.root_directory_label.text())
+			self.loaded_eeg_data = utils.load_data(self.root_directories)
 
 		eeg_data, classes, sampling_rate, self.trial_classes = \
-			utils.slice_and_filter_data(self.root_directory_label.text(), filter_settings, self.loaded_eeg_data)
+			utils.slice_and_filter_data(self.root_directories, filter_settings, self.loaded_eeg_data)
 
 		labels = np.array(classes).reshape((-1, 1))
 
@@ -728,10 +731,25 @@ class ClassifierTrainer(QMainWindow):
 				return False
 		return True
 
-	def select_root_directory_path(self):
-		path = QFileDialog.getExistingDirectory(self, "Select Root Directory...")
-		self.root_directory_label.setText(path)
+	def update_root_directories_label(self):
+		label_str = ""
+
+		for directory_str in self.root_directories:
+			label_str += directory_str + "\n"
+
+		self.root_directory_label.setText(label_str)
+
+	def add_root_directory_clicked(self):
+		path = QFileDialog.getExistingDirectory(self, "Add Root Directory...")
+		self.root_directories.append(path)
+		self.update_root_directories_label()
 		self.root_directory_changed = True
+
+	def pop_root_directory_clicked(self):
+		if len(self.root_directories) != 0:
+			self.root_directories.pop()
+			self.update_root_directories_label()
+			self.root_directory_changed = True
 
 
 class OnlineClassifierConfigurations:
