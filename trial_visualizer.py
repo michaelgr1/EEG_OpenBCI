@@ -24,17 +24,20 @@ RIGHT2 = 1
 L_TO_R = [LEFT2, LEFT1, CENTER, RIGHT1, RIGHT2]
 
 NAMES = {
-	RIGHT2: "R2",
-	RIGHT1: "R1",
-	CENTER: "C",
-	LEFT1: "L1",
-	LEFT2: "L2"
+	RIGHT2: "Right",
+	RIGHT1: "Middle Right",
+	CENTER: "Center",
+	LEFT1: "Middle Left",
+	LEFT2: "Left"
 }
 
+# WINDOW_SIZE = 1.024
 WINDOW_SIZE = 2.048
+# WINDOW_SIZE = 4.096
 
 
 def main():
+	plt.rcParams.update({'font.size': 28})
 
 	left_frequency_band = utils.FrequencyBand(LEFT_FREQ - BANDWIDTH / 2, LEFT_FREQ + BANDWIDTH / 2)
 	right_frequency_band = utils.FrequencyBand(RIGHT_FREQ - BANDWIDTH / 2, RIGHT_FREQ + BANDWIDTH / 2)
@@ -45,11 +48,11 @@ def main():
 
 	print("Loading data...")
 
-	raw_data = utils.load_data(path)
+	raw_data = utils.load_data([path])
 	filter_settings = utils.FilterSettings(250, 15, 35, reference_electrode=3)
 
 	print("Slicing and filtering...")
-	eeg_data, labels, fs, trial_classes = utils.slice_and_filter_data(path, filter_settings, raw_data)
+	eeg_data, labels, fs, trial_classes = utils.slice_and_filter_data([path], filter_settings, raw_data)
 
 	label_to_name = {}
 
@@ -231,9 +234,19 @@ def main():
 				extractor = all_data.feature_extractor(electrode - 1, fs)
 				freq, power = extractor.fft(WINDOW_SIZE)
 
+				# Subtract 16-18 Hz average as it is considered noise
+
+				# avg = utils.AccumulatingAverage()
+				#
+				# for i in range(len(freq)):
+				# 	if 16 <= freq[i] <= 18:
+				# 		avg.add_value(power[i])
+				#
+				# power -= avg.compute_average()
+
 				data = data_row_array[electrode - 1, :]
 
-				plt.plot(freq, power, label=NAMES[electrode] + " - Custom Welch")
+				plt.plot(freq, power, label=NAMES[electrode])
 
 				# power, freq = DataFilter.get_psd_welch\
 				# 	(data, win_size_in_samples, int(win_size_in_samples / 2), 250, WindowFunctions.HAMMING.value)
@@ -243,7 +256,7 @@ def main():
 			plt.xlabel("Frequency (Hz)")
 			plt.ylabel("Amplitude")
 			plt.title("Re-referenced FFT for entire trial")
-			plt.legend(loc="best")
+			plt.legend(loc="best", prop={"size": 20})
 
 			plt.show()
 		elif option == 6:

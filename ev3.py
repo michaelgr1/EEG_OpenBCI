@@ -1,8 +1,9 @@
 import math
 
-import bluetooth
-
 import numerical
+
+
+# import bluetooth
 
 
 #
@@ -13,7 +14,7 @@ import numerical
 class EV3:
 
     def __init__(self, mac_address: str):
-        self.socket = bluetooth.BluetoothSocket()
+        # self.socket = bluetooth.BluetoothSocket()
         self.mac_address = mac_address
 
     def connect(self):

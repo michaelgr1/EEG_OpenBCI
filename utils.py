@@ -287,7 +287,8 @@ class FeatureExtractor:
 			if min_freq <= frequencies[i] <= max_freq:
 				amplitudes_in_band.append(amplitudes[i])
 
-		return highest_peak(amplitudes_in_band)
+		# return highest_peak(amplitudes_in_band)
+		return max(amplitudes_in_band)
 
 	def average_band_amplitude(self, freq_band: FrequencyBand, window_size: float = 0) -> float:
 		""""
@@ -512,6 +513,21 @@ class FeatureExtractionInfo:
 	def electrode_count(self) -> int:
 		return len(self.electrodes_list)
 
+	def channels(self) -> [int]:
+		indexes = []
+		for electrode in self.electrodes_list:
+			indexes.append(electrode - 1)
+		return indexes
+
+	def first_electrode(self) -> int:
+		return min(self.electrodes_list)
+
+	def last_electrode(self) -> int:
+		return max(self.electrodes_list)
+
+	def range_size(self) -> int:
+		return self.last_electrode() - self.first_electrode() + 1
+
 
 class Direction(Enum):
 	LEFT = 0
@@ -527,6 +543,10 @@ class TrialClass:
 		self.image_path = image_path
 		self.label = label
 		self.direction = direction
+
+	def get_image_path(self):
+		correct_path = global_config.IMAGES_SSD_DRIVER_LETTER + self.image_path[1:]
+		return correct_path
 
 	def __eq__(self, other):
 		if type(other) == TrialClass:

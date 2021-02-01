@@ -1,5 +1,4 @@
 import random
-import sys
 
 import PyQt5.QtCore
 import matplotlib.pyplot as plt
@@ -13,20 +12,27 @@ from PyQt5.QtWidgets import QWidget, QApplication, QCheckBox, QGridLayout, QMain
 from brainflow.board_shim import BoardShim, BrainFlowInputParams
 from sklearn.decomposition import PCA
 
-import classification
+import classification as cls
 import data
-# import ev3
+import ev3
 import global_config
 import utils
 from data import DataSet
 
 AVAILABLE_CLASSIFIERS = [
-	classification.LogisticRegressionClassifier.NAME,
-	classification.KNearestNeighborsClassifier.NAME,
-	classification.PerceptronClassifier.NAME,
-	classification.SvmClassifier.NAME,
-	classification.LdaClassifier.NAME,
-	classification.ANNClassifier.NAME
+	cls.LogisticRegressionClassifier.NAME,
+	cls.KNearestNeighborsClassifier.NAME,
+	cls.PerceptronClassifier.NAME,
+	cls.SvmClassifier.NAME,
+	cls.LdaClassifier.NAME,
+	cls.ANNClassifier.NAME,
+	cls.VotingClassifier.NAME
+]
+
+DEFAULT_VOTING_CLASSIFIERS = [
+	cls.LogisticRegressionClassifier.NAME,
+	cls.SvmClassifier.NAME,
+	cls.LdaClassifier.NAME
 ]
 
 
@@ -42,8 +48,10 @@ FFT_WINDOW_SIZES = \
 
 class ClassifierTrainer(QMainWindow):
 
+	DEFAULT_K_FOLD_REPETITIONS = 1000
+
 	data_set: DataSet
-	classifier: classification.SimpleClassifier
+	classifier: cls.SimpleClassifier
 
 	def __init__(self):
 		super().__init__()
@@ -57,6 +65,7 @@ class ClassifierTrainer(QMainWindow):
 		self.trial_classes = []
 
 		self.root_directories = []
+		self.root_directories.append("F:\\EEG_GUI_OpenBCI\\eeg_recordings\\vibro_tactile_27_12_2020\\trial_02")
 
 		self.root_widget = QWidget()
 		self.root_layout = QGridLayout()
@@ -87,14 +96,14 @@ class ClassifierTrainer(QMainWindow):
 		self.pop_root_directory.clicked.connect(self.pop_root_directory_clicked)
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			QLabel("Root Directories: "), self.root_directory_label, self.add_root_directory, self.pop_root_directory
-		]), 2, 0, 2, 1)
+		]), 2, 0, 2, 3)
 
 		pre_processing_label = QLabel("<h2> Pre-Process Data </h2>")
 		pre_processing_label.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
 		self.root_layout.addWidget(pre_processing_label, 6, 0, 1, 3)
 
-		self.bandpass_min_edit = QLineEdit()
-		self.bandpass_max_edit = QLineEdit()
+		self.bandpass_min_edit = QLineEdit("15")
+		self.bandpass_max_edit = QLineEdit("30")
 
 		self.notch_filter_checkbox = QCheckBox("Notch Filter")
 		self.notch_filter_checkbox.setChecked(True)
@@ -119,7 +128,7 @@ class ClassifierTrainer(QMainWindow):
 		), 8, 0, 1, 3)
 
 		self.re_reference_checkbox = QCheckBox("Re-Reference data")
-		self.reference_electrode_edit = QLineEdit()
+		self.reference_electrode_edit = QLineEdit("3")
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			self.re_reference_checkbox, QLabel("New reference electrode: "), self.reference_electrode_edit
@@ -163,7 +172,7 @@ class ClassifierTrainer(QMainWindow):
 		feature_extraction_label.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
 		self.root_layout.addWidget(feature_extraction_label, 11, 0, 1, 3)
 
-		self.electrodes_edit = QLineEdit()
+		self.electrodes_edit = QLineEdit("5,4,2,1")
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			QLabel("Include data from electrodes (comma separated):"), self.electrodes_edit]), 12, 0, 1, 2)
@@ -199,9 +208,9 @@ class ClassifierTrainer(QMainWindow):
 
 		self.frequency_bands_checkbox = QCheckBox("Multiple Frequency Bands")
 
-		self.band_width_edit = QLineEdit()
+		self.band_width_edit = QLineEdit("1")
 
-		self.center_frequencies_edit = QLineEdit()
+		self.center_frequencies_edit = QLineEdit("20,24")
 
 		self.peak_frequency_checkbox = QCheckBox("Peak Frequency")
 
@@ -216,8 +225,9 @@ class ClassifierTrainer(QMainWindow):
 		self.classifier_type_combo = QComboBox()
 		self.classifier_type_combo.addItems(AVAILABLE_CLASSIFIERS)
 
-		self.root_layout.addWidget(classifier_type_label, 16, 0, 1, 1)
-		self.root_layout.addWidget(self.classifier_type_combo, 16, 1, 1, 1)
+		self.root_layout.addWidget(utils.construct_horizontal_box([
+			classifier_type_label, self.classifier_type_combo
+		]), 16, 0, 1, 3)
 
 		self.extract_features_btn = QPushButton("Extract Features")
 		self.extract_features_btn.clicked.connect(self.extract_features_clicked)
@@ -245,10 +255,15 @@ class ClassifierTrainer(QMainWindow):
 		self.k_fold_btn = QPushButton("k fold cross validation")
 		self.k_fold_btn.clicked.connect(self.k_fold_cross_validation_clicked)
 
+		self.repeated_k_fold_btn = QPushButton("repeated k fold")
+		self.repeated_k_fold_btn.clicked.connect(self.repeated_k_fold_clicked)
+
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			self.performance_report_btn, self.error_description_btn, self.visualize_data_btn,
-			self.k_fold_edit, self.k_fold_btn
+			self.k_fold_edit, self.k_fold_btn, self.repeated_k_fold_btn
 		]), 18, 0, 1, 3)
+
+		self.update_root_directories_label()
 
 	def set_feature_scaling_type(self, feature_scaling_type: data.FeatureScalingType):
 		self.selected_feature_scaling_type = feature_scaling_type
@@ -360,40 +375,12 @@ class ClassifierTrainer(QMainWindow):
 
 		# Extract features
 
-		# TODO: Temporary, only for testing something
-		valid_indexes = \
-			[1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-			 16, 17, 18, 19, 20, 22, 23, 24, 25, 27, 28, 31,
-			 32, 33, 36, 38, 39, 40, 42, 43, 44, 45, 46, 48, 49]
-
-		# new_eeg_data = []
-		#
-		# for i in range(len(eeg_data)):
-		# 	if i in valid_indexes:
-		# 		new_eeg_data.append(eeg_data[i])
-		#
-		# labels = labels[np.array(valid_indexes)]
-		# eeg_data = new_eeg_data
-
 		extracted_data = utils.extract_features(
 			eeg_data, feature_extraction_info, feature_types)
 
 		feature_matrix = data.construct_feature_matrix(extracted_data)
 
-		# for label in np.unique(labels):
-		# 	temp = labels.copy()
-		# 	temp[labels == label] = 1
-		# 	temp[labels != label] = 0
-		# 	count = np.sum(temp)
-		# 	samples = np.empty((count, feature_matrix.shape[1]))
-		# 	sample_index = 0
-		# 	for i in range(feature_matrix.shape[0]):
-		# 		if labels[i] == label:
-		# 			samples[sample_index, :] = feature_matrix[i, :]
-		# 			sample_index += 1
-		# 	DataFilter.write_file(samples.T, self.root_directory_label.text() + "/samples_of_label_{}.csv".format(label), "w")
-
-		self.data_set = DataSet(feature_matrix, labels, add_x0=False, shuffle=True)
+		self.data_set = DataSet(feature_matrix, labels, add_x0=False, shuffle=False)
 
 		print("Features extracted successfully...")
 
@@ -420,9 +407,9 @@ class ClassifierTrainer(QMainWindow):
 		labels = self.data_set.feature_matrix_labels()
 
 		# Train Classifier
-		if selected_classifier == classification.LogisticRegressionClassifier.NAME:
-			classifier = classification.LogisticRegressionClassifier(feature_matrix, labels, shuffle=False)
-			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		if selected_classifier == cls.LogisticRegressionClassifier.NAME:
+			classifier = cls.LogisticRegressionClassifier(feature_matrix, labels, shuffle=False)
+			classifier.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 			cost = classifier.train(accuracy_threshold=accuracy_threshold)
 
@@ -435,14 +422,14 @@ class ClassifierTrainer(QMainWindow):
 			print("Training set accuracy = {}".format(classifier.training_set_accuracy()))
 			print("Logistic Regression trained successfully, test set accuracy = {}".format(classifier.test_set_accuracy()))
 			print("Cross validation accuracy = {}".format(classifier.test_set_accuracy()))
-		elif selected_classifier == classification.KNearestNeighborsClassifier.NAME:
+		elif selected_classifier == cls.KNearestNeighborsClassifier.NAME:
 
 			k_value = self.get_k_value()
 
 			print("Using K value of {}".format(k_value))
 
-			classifier = classification.KNearestNeighborsClassifier(feature_matrix, labels, k_value, shuffle=False)
-			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+			classifier = cls.KNearestNeighborsClassifier(feature_matrix, labels, k_value, shuffle=False)
+			classifier.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 
 			print("KNN training set accuracy = {}".format(classifier.training_set_accuracy()))
@@ -455,27 +442,27 @@ class ClassifierTrainer(QMainWindow):
 			plt.ylabel("Accuracy")
 			plt.title("Accuracy graph for K values")
 			plt.show()
-		elif selected_classifier == classification.PerceptronClassifier.NAME:
-			classifier = classification.PerceptronClassifier(feature_matrix, labels, shuffle=False)
-			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		elif selected_classifier == cls.PerceptronClassifier.NAME:
+			classifier = cls.PerceptronClassifier(feature_matrix, labels, shuffle=False)
+			classifier.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 			classifier.train(accuracy_threshold=accuracy_threshold)
 
 			print("Perceptron training set accuracy = {}".format(classifier.training_set_accuracy()))
 			print("Perceptron test set accuracy = {}".format(classifier.test_set_accuracy()))
 			print("Perceptron Cross validation accuracy = {}".format(classifier.cross_validation_accuracy()))
-		elif selected_classifier == classification.SvmClassifier.NAME:
-			classifier = classification.SvmClassifier(feature_matrix, labels, regularization_param, shuffle=False)
-			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		elif selected_classifier == cls.SvmClassifier.NAME:
+			classifier = cls.SvmClassifier(feature_matrix, labels, regularization_param, shuffle=False)
+			classifier.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 			classifier.train()
 
 			print("SVM training set accuracy = {}".format(classifier.training_set_accuracy()))
 			print("SVM test set accuracy = {}".format(classifier.test_set_accuracy()))
 			print("SVM cross validation accuracy = {}".format(classifier.cross_validation_accuracy()))
-		elif selected_classifier == classification.LdaClassifier.NAME:
-			classifier = classification.LdaClassifier(feature_matrix, labels, shuffle=False)
-			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		elif selected_classifier == cls.LdaClassifier.NAME:
+			classifier = cls.LdaClassifier(feature_matrix, labels, shuffle=False)
+			classifier.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 			classifier.train()
 
@@ -484,15 +471,24 @@ class ClassifierTrainer(QMainWindow):
 			print("LDA cross validation accuracy = {}".format(classifier.cross_validation_accuracy()))
 
 			# TODO: Learning curves
-		elif selected_classifier == classification.ANNClassifier.NAME:
-			classifier = classification.ANNClassifier(feature_matrix, labels, shuffle=False)
-			classifier.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		elif selected_classifier == cls.ANNClassifier.NAME:
+			classifier = cls.ANNClassifier(feature_matrix, labels, shuffle=False)
+			classifier.apply_feature_scaling(self.selected_feature_scaling_type)
 			self.classifier = classifier
 			classifier.train()
 
 			print("MLP training set accuracy = {}".format(classifier.training_set_accuracy()))
 			print("MLP test set accuracy = {}".format(classifier.test_set_accuracy()))
 			print("MLP cross validation accuracy = {}".format(classifier.cross_validation_accuracy()))
+		elif selected_classifier == cls.VotingClassifier.NAME:
+			classifier = cls.VotingClassifier(feature_matrix, labels, DEFAULT_VOTING_CLASSIFIERS, shuffle=False)
+			classifier.apply_feature_scaling(self.selected_feature_scaling_type)
+			self.classifier = classifier
+			self.classifier.train()
+
+			print("VOTING training set accuracy = {}".format(classifier.training_set_accuracy()))
+			print("VOTING test set accuracy = {}".format(classifier.test_set_accuracy()))
+			print("VOTING cross validation accuracy = {}".format(classifier.cross_validation_accuracy()))
 
 		self.root_directory_changed = False
 
@@ -504,40 +500,48 @@ class ClassifierTrainer(QMainWindow):
 			except ValueError:
 				pass
 
+	def repeated_k_fold_clicked(self):
+		if self.classifier is not None:
+			k = int(self.k_fold_edit.text())
+
+			average, std = self.classifier.repeated_k_fold_cross_validation(k)
+
+			print("Average = {}, std = {}".format(average, std))
+
 	def generate_performance_report(self):
 		feature_matrix = self.data_set.raw_feature_matrix()
 		labels = self.data_set.feature_matrix_labels()
 
 		# Logistic Regression
-		cls1 = classification.LogisticRegressionClassifier(feature_matrix, labels, shuffle=False)
-		cls1.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls1 = cls.LogisticRegressionClassifier(feature_matrix, labels, shuffle=False)
+		cls1.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls1.train(accuracy_threshold=self.get_accuracy_threshold())
 
 		# KNN
 		k_value = self.get_k_value()
 		print("Using K value of {}".format(k_value))
 
-		cls2 = classification.KNearestNeighborsClassifier(feature_matrix, labels, k_value, shuffle=False)
-		cls2.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls2 = cls.KNearestNeighborsClassifier(feature_matrix, labels, k_value, shuffle=False)
+		cls2.apply_feature_scaling(self.selected_feature_scaling_type)
 
 		# Perceptron
-		cls3 = classification.PerceptronClassifier(feature_matrix, labels, shuffle=False)
-		cls3.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls3 = cls.PerceptronClassifier(feature_matrix, labels, shuffle=False)
+		cls3.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls3.train(accuracy_threshold=self.get_accuracy_threshold())
 
 		# SVM
-		cls4 = classification.SvmClassifier(feature_matrix, labels, self.get_regularization_param(), shuffle=False)
-		cls4.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls4 = cls.SvmClassifier(feature_matrix, labels, self.get_regularization_param(), shuffle=False)
+		cls4.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls4.train()
 
 		# LDA
-		cls5 = classification.LdaClassifier(feature_matrix, labels, shuffle=False)
-		cls5.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls5 = cls.LdaClassifier(feature_matrix, labels, shuffle=False)
+		cls5.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls5.train()
 
 		# MLP
-		cls6 = classification.ANNClassifier(feature_matrix, labels, shuffle=False)
-		cls6.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls6 = cls.ANNClassifier(feature_matrix, labels, shuffle=False)
+		cls6.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls6.train()
 
 		# Get performance measure from each
@@ -580,35 +584,35 @@ class ClassifierTrainer(QMainWindow):
 		labels = self.data_set.feature_matrix_labels()
 
 		# Logistic Regression
-		cls1 = classification.LogisticRegressionClassifier(feature_matrix, labels, shuffle=False)
-		cls1.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls1 = cls.LogisticRegressionClassifier(feature_matrix, labels, shuffle=False)
+		cls1.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls1.train(accuracy_threshold=self.get_accuracy_threshold())
 
 		# KNN
 		k_value = self.get_k_value()
 		print("Using K value of {}".format(k_value))
 
-		cls2 = classification.KNearestNeighborsClassifier(feature_matrix, labels, k_value, shuffle=False)
-		cls2.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls2 = cls.KNearestNeighborsClassifier(feature_matrix, labels, k_value, shuffle=False)
+		cls2.apply_feature_scaling(self.selected_feature_scaling_type)
 
 		# Perceptron
-		cls3 = classification.PerceptronClassifier(feature_matrix, labels, shuffle=False)
-		cls3.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls3 = cls.PerceptronClassifier(feature_matrix, labels, shuffle=False)
+		cls3.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls3.train(accuracy_threshold=self.get_accuracy_threshold())
 
 		# SVM
-		cls4 = classification.SvmClassifier(feature_matrix, labels, self.get_regularization_param(), shuffle=False)
-		cls4.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls4 = cls.SvmClassifier(feature_matrix, labels, self.get_regularization_param(), shuffle=False)
+		cls4.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls4.train()
 
 		# LDA
-		cls5 = classification.LdaClassifier(feature_matrix, labels, shuffle=False)
-		cls5.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls5 = cls.LdaClassifier(feature_matrix, labels, shuffle=False)
+		cls5.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls5.train()
 
 		# MLP
-		cls6 = classification.ANNClassifier(feature_matrix, labels, shuffle=False)
-		cls6.data_set.apply_feature_scaling(self.selected_feature_scaling_type)
+		cls6 = cls.ANNClassifier(feature_matrix, labels, shuffle=False)
+		cls6.apply_feature_scaling(self.selected_feature_scaling_type)
 		cls6.train()
 
 		errd1 = cls1.error_description()
@@ -711,7 +715,7 @@ class ClassifierTrainer(QMainWindow):
 	def test_classifier_clicked(self):
 		if self.classifier is not None and self.filter_settings is not None and self.feature_extraction_info is not None\
 				and len(self.feature_types) != 0 and len(self.trial_classes) != 0:
-			trial_length = utils.obtain_trial_length_from_slice_index(self.root_directory_label.text())
+			trial_length = utils.obtain_trial_length_from_slice_index(self.root_directories[0])
 
 			online_config = OnlineClassifierConfigurations()
 			online_config.feature_window_size = trial_length
@@ -775,7 +779,7 @@ class TrainingTaskTile(QWidget):
 		self.setLayout(self.root_layout)
 
 		self.class_image_label = QLabel()
-		self.class_image_pixmap = QPixmap(self.trial_class.image_path).scaledToHeight(int(image_height), Qt.FastTransformation)
+		self.class_image_pixmap = QPixmap(self.trial_class.get_image_path()).scaledToHeight(int(image_height), Qt.FastTransformation)
 		self.class_image_label.setPixmap(self.class_image_pixmap)
 
 		self.root_layout.addWidget(self.class_image_label, 0, 0, 3, 3)
@@ -808,15 +812,17 @@ class OnlineClassifierGui(QMainWindow):
 
 	CLASS_IMAGE_HEIGHT = 400
 
-	MENTAL_TASK_DELAY = 4000
+	MENTAL_TASK_DELAY = 1000
 
 	EV3_MAC_ADDRESS = "00:16:53:4f:bd:54"
 
+	ROBOT_CONTROL = False
+
 	DEFAULT_ROBOT_SPEED = 10
 
-	classifier: classification.SimpleClassifier
+	classifier: cls.SimpleClassifier
 
-	def __init__(self, classifier: classification.SimpleClassifier, filter_settings: utils.FilterSettings,
+	def __init__(self, classifier: cls.SimpleClassifier, filter_settings: utils.FilterSettings,
 				feature_extraction_info: utils.FeatureExtractionInfo,
 				feature_types: [],
 				trial_classes: [utils.TrialClass],
@@ -936,7 +942,7 @@ class OnlineClassifierGui(QMainWindow):
 
 	def initialize_data_buffer(self):
 		self.data_buffer = np.zeros((
-				self.feature_extraction_info.electrode_count(),
+				self.feature_extraction_info.range_size(),
 				int(self.INTERNAL_BUFFER_EXTRA_SIZE + self.config.feature_window_size * self.feature_extraction_info.sampling_rate)
 		), dtype=float)
 
@@ -971,13 +977,13 @@ class OnlineClassifierGui(QMainWindow):
 		self.log(f"Starting data stream, online training? {self.online_training}")
 
 		# if self.online_training:
-		# 	if type(self.classifier) == classification.LogisticRegressionClassifier:
+		# 	if type(self.classifier) == cls.LogisticRegressionClassifier:
 		# 		self.previous_cross_validation_accuracy = self.classifier.cross_validation_accuracy()
 		# 		self.previous_test_set_accuracy = self.classifier.test_set_accuracy()
-		# 	elif type(self.classifier) == classification.KNearestNeighborsClassifier:
+		# 	elif type(self.classifier) == cls.KNearestNeighborsClassifier:
 		# 		self.previous_cross_validation_accuracy = self.classifier.cross_validation_accuracy()
 		# 		self.previous_test_set_accuracy = self.classifier.test_set_accuracy()
-		# 	elif type(self.classifier) == classification.PerceptronClassifier:
+		# 	elif type(self.classifier) == cls.PerceptronClassifier:
 		# 		self.previous_cross_validation_accuracy = self.classifier.cross_validation_accuracy()
 		# 		self.previous_test_set_accuracy = self.classifier.test_set_accuracy()
 		# 	self.online_training_timer = QTimer()
@@ -1010,11 +1016,11 @@ class OnlineClassifierGui(QMainWindow):
 			#
 			# 	self.log("Retraining classifier...")
 			#
-			# 	if type(self.classifier) == classification.LogisticRegressionClassifier:
+			# 	if type(self.classifier) == cls.LogisticRegressionClassifier:
 			# 		self.classifier.train()
-			# 	elif type(self.classifier) == classification.KNearestNeighborsClassifier:
+			# 	elif type(self.classifier) == cls.KNearestNeighborsClassifier:
 			# 		self.log("No training for KNN...")
-			# 	elif type(self.classifier) == classification.PerceptronClassifier:
+			# 	elif type(self.classifier) == cls.PerceptronClassifier:
 			# 		self.classifier.train()
 			#
 			# 	self.log("Training over...")
@@ -1022,13 +1028,13 @@ class OnlineClassifierGui(QMainWindow):
 			# 	test_set_accuracy = -1
 			# 	cross_validation_set_accuracy = -1
 			#
-			# 	if type(self.classifier) == classification.LogisticRegressionClassifier:
+			# 	if type(self.classifier) == cls.LogisticRegressionClassifier:
 			# 		cross_validation_set_accuracy = self.classifier.cross_validation_accuracy()
 			# 		test_set_accuracy = self.classifier.test_set_accuracy()
-			# 	elif type(self.classifier) == classification.KNearestNeighborsClassifier:
+			# 	elif type(self.classifier) == cls.KNearestNeighborsClassifier:
 			# 		cross_validation_set_accuracy = self.classifier.cross_validation_accuracy()
 			# 		test_set_accuracy = self.classifier.test_set_accuracy()
-			# 	elif type(self.classifier) == classification.PerceptronClassifier:
+			# 	elif type(self.classifier) == cls.PerceptronClassifier:
 			# 		cross_validation_set_accuracy = self.classifier.cross_validation_accuracy()
 			# 		test_set_accuracy = self.classifier.test_set_accuracy()
 			#
@@ -1047,9 +1053,9 @@ class OnlineClassifierGui(QMainWindow):
 			self.data_buffer = np.roll(self.data_buffer, shift=-raw_eeg_data.shape[1], axis=1)
 
 			# Insert new samples
-			first_channel = self.feature_extraction_info.first_channel - 1
-			last_channel = self.feature_extraction_info.last_channel
-			self.data_buffer[:, self.data_buffer.shape[1] - raw_eeg_data.shape[1]:] = raw_eeg_data[first_channel:last_channel, :]
+			first_index = self.feature_extraction_info.first_electrode() - 1
+			last_index = self.feature_extraction_info.last_electrode()  # Not including
+			self.data_buffer[:, self.data_buffer.shape[1] - raw_eeg_data.shape[1]:] = raw_eeg_data[first_index:last_index, :]
 
 			self.samples_push_count += raw_eeg_data.shape[1]
 			if self.online_training and self.online_training_timer is None:
@@ -1080,67 +1086,38 @@ class OnlineClassifierGui(QMainWindow):
 
 		print("Feature Vector extracted successfully...")
 
-		label = -sys.maxsize
+		label = self.classifier.classify(feature_data)
 
-		if type(self.classifier) == classification.LogisticRegressionClassifier:
-			label = self.classifier.classify(feature_data)
-			self.class_label.setText(f"Current data is classified as {label} using Logistic Regression")
-			self.log(f"Data classified as {label}, confidence = {self.classifier.confidence(feature_data)}")
-
-		if type(self.classifier) == classification.KNearestNeighborsClassifier:
-			label = self.classifier.classify(feature_data)
-			self.class_label.setText(f"Current data is classified as {label} using KNN")
-			self.log(f"Data classified as {label}, confidence = {self.classifier.confidence(np.transpose(feature_vector.data))}")
-
-		if type(self.classifier) == classification.PerceptronClassifier:
-			label = self.classifier.classify(feature_data)
-			self.class_label.setText(f"Current data is classified as {label} using the Perceptron")
-			self.log(f"Data classified as {label}, confidence = {self.classifier.confidence(feature_vector.data)}")
-
-		if type(self.classifier) == classification.SvmClassifier:
-			label = self.classifier.classify(feature_data)
-			self.class_label.setText(f"Current data is classified as {label} using Linear SVM")
-			self.log(f"Data classified as {label}")
-
-		if type(self.classifier) == classification.LdaClassifier:
-			label = self.classifier.classify(feature_data)
-			self.class_label.setText(f"Current data is classified as {label} using LDA")
-			self.log(f"Data classified as {label}")
-
-		if type(self.classifier) == classification.ANNClassifier:
-			label = self.classifier.classify(feature_data)
-			self.class_label.setText(f"Current data is classified as {label} using MLP")
-			self.log(f"Data classified as {label}")
+		while type(label) == np.ndarray:
+			label = label[0]
 
 		print(f"label = {label}")
 
 		direction = None
 
-		if label != -sys.maxsize:
+		if online_training:
+			correct_label = self.current_mental_task.label
 
-			# if online_training:
-			# 	correct_label = self.current_mental_task.label
-			#
-			# 	if label != correct_label:
-			# 		self.log("Wrong classification!")
-			# 	else:
-			# 		self.log("Correct Classification")
-			#
-			# 	# Add the sample to one of the classifier's data sets
-			# 	chance = random.random()
-			#
-			# 	# TODO: Implement online training
-			# 	self.log("Not Implemented")
+			if label != correct_label:
+				self.log("Wrong classification!")
+			else:
+				self.log("Correct Classification")
 
-			path = ""
-			for trial_class in self.trial_classes:
-				if trial_class.label == label:
-					path = trial_class.image_path
-					direction = trial_class.direction
-					break
-			self.class_pixmap = QPixmap(path).scaledToHeight(self.CLASS_IMAGE_HEIGHT, Qt.FastTransformation)
-			self.class_label.setPixmap(self.class_pixmap)
+			self.classifier.get_data_set().append_to(feature_data, np.array([correct_label]), data.DataSubSetType.TRAINING)
+			# TODO: Might block execution for too long
+			self.classifier.train()
+			self.log("Training accuracy: " + self.classifier.training_set_accuracy())
 
+		path = ""
+		for trial_class in self.trial_classes:
+			if trial_class.label == label:
+				path = trial_class.get_image_path()
+				direction = trial_class.direction
+				break
+		self.class_pixmap = QPixmap(path).scaledToHeight(self.CLASS_IMAGE_HEIGHT, Qt.FastTransformation)
+		self.class_label.setPixmap(self.class_pixmap)
+
+		if self.ROBOT_CONTROL:
 			if direction == utils.Direction.LEFT:
 				self.motor_control.turn_left_from_middle(90, self.DEFAULT_ROBOT_SPEED)
 				print("left")

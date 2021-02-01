@@ -116,6 +116,17 @@ class SimpleClassifier(ABC):
     def k_fold_cross_validation(self, k: int = 10) -> (float, float):
         pass
 
+    def repeated_k_fold_cross_validation(self, k: int = 10, repetitions: int = 100) -> (float, float):
+        accuracies = []
+
+        for _i in range(repetitions):
+            __, testing_accuracy = self.k_fold_cross_validation(k)
+            accuracies.append(testing_accuracy)
+
+        arr = np.array(accuracies)
+
+        return statistics.arithmetic_mean(arr), statistics.population_standard_deviation(arr)
+
     @abstractmethod
     def get_data_set(self) -> data.DataSet:
         pass
@@ -124,11 +135,16 @@ class SimpleClassifier(ABC):
     def set_data_set(self, data_set: data.DataSet):
         pass
 
+    def apply_feature_scaling(self, feature_scaling_type: data.FeatureScalingType):
+        self.get_data_set().apply_feature_scaling(feature_scaling_type)
+
 
 def k_fold_cross_validation(classifier: SimpleClassifier, k: int) -> (float, float):
-    data_sets = k_fold_data_sets(classifier.get_data_set(), k)
-
-    original_data_set = classifier.get_data_set()
+    # TODO: Expensive operation, but required to restore the original data set
+    original_data_set = classifier.get_data_set().copy()
+    shuffled_data_set = data.DataSet(original_data_set.raw_feature_matrix(), original_data_set.feature_matrix_labels(),
+                                     add_x0=original_data_set.add_x0, shuffle=True)
+    data_sets = k_fold_data_sets(shuffled_data_set, k)
 
     training_average = utils.AccumulatingAverage()
     testing_average = utils.AccumulatingAverage()
@@ -138,6 +154,8 @@ def k_fold_cross_validation(classifier: SimpleClassifier, k: int) -> (float, flo
         classifier.train()
         training_average.add_value(classifier.training_set_accuracy())
         testing_average.add_value(classifier.test_set_accuracy())
+
+    classifier.set_data_set(original_data_set)
 
     return training_average.compute_average(), testing_average.compute_average()
 
@@ -831,7 +849,9 @@ class SvmClassifier(SimpleClassifier):
     def predict(self, x: np.ndarray):
         raise NotImplemented()
 
-    def classify(self, x: np.ndarray):
+    def classify(self, x: np.ndarray, raw: bool = False):
+        if raw:
+            x = self.data_set.process_data(x)
         return self.classifier.predict(x)
 
     def training_set_accuracy(self):
@@ -899,7 +919,9 @@ class LdaClassifier(SimpleClassifier):
     def predict(self, x: np.ndarray):
         raise NotImplemented()
 
-    def classify(self, x: np.ndarray):
+    def classify(self, x: np.ndarray, raw: bool = False):
+        if raw:
+            x = self.data_set.process_data(x)
         return self.classifier.predict(x)
 
     def training_set_accuracy(self):
@@ -1022,6 +1044,95 @@ class ANNClassifier(SimpleClassifier):
             class_errors_percent.append(class_errors[label] / total_error_count * 100)
 
         return performance.ClassifierErrorDescription(class_labels, class_errors_percent)
+
+
+class VotingClassifier(SimpleClassifier):
+
+    NAME = "Voting Classifier"
+
+    classifiers: [SimpleClassifier]
+
+    def __init__(self, data_matrix: np.ndarray, labels: np.ndarray, classifiers_names: [str], shuffle: bool = True):
+        self.classifiers = []
+
+        for i in range(len(classifiers_names)):
+            name = classifiers_names[i]
+            if name == LogisticRegressionClassifier.NAME:
+                self.classifiers.append(LogisticRegressionClassifier(data_matrix, labels, shuffle=shuffle))
+            elif name == KNearestNeighborsClassifier.NAME:
+                self.classifiers.append(KNearestNeighborsClassifier(data_matrix, labels, 5, shuffle=shuffle))
+            elif name == PerceptronClassifier.NAME:
+                self.classifiers.append(PerceptronClassifier(data_matrix, labels, shuffle=shuffle))
+            elif name == SvmClassifier.NAME:
+                self.classifiers.append(SvmClassifier(data_matrix, labels, shuffle=shuffle))
+            elif name == LdaClassifier.NAME:
+                self.classifiers.append(LdaClassifier(data_matrix, labels, shuffle=shuffle))
+            elif name == ANNClassifier.NAME:
+                self.classifiers.append(ANNClassifier(data_matrix, labels, shuffle=shuffle))
+
+        self.original_data_matrix = data_matrix
+        self.original_labels = labels
+
+    def predict(self, x: np.ndarray):
+        raise NotImplemented()
+
+    def classify(self, x: np.ndarray, raw: bool = False):
+        prediction_matrix = np.zeros((x.shape[0], len(self.classifiers)))
+        labels = np.zeros((x.shape[0], 1))
+        for i in range(len(self.classifiers)):
+            predictions = self.classifiers[i].classify(x, raw=raw)
+            prediction_matrix[:, i] = predictions.flatten()
+
+        for i in range(x.shape[0]):
+            predictions = prediction_matrix[i, :]
+            predictions = predictions.astype(int)
+            label = np.bincount(predictions).argmax()  # Most frequency value is the label
+            labels[i, 0] = label
+
+        return labels
+
+    def train(self):
+        for classifier in self.classifiers:
+            classifier.train()
+            print("Trained classifier: accuracy = " + str(classifier.test_set_accuracy()))
+
+    def test_set_accuracy(self):
+        testing_data = self.classifiers[0].get_data_set().raw_test_set
+        test_labels = self.classifiers[0].get_data_set().test_set_labels
+        return classification_accuracy(self.classify(testing_data, raw=True), test_labels)
+
+    def cross_validation_accuracy(self):
+        cross_validation_data = self.classifiers[0].get_data_set().raw_cross_validation_set
+        labels = self.classifiers[0].get_data_set().cross_validation_labels
+        return classification_accuracy(self.classify(cross_validation_data, raw=True), labels)
+
+    def training_set_accuracy(self):
+        training_data = self.classifiers[0].get_data_set().raw_training_set
+        labels = self.classifiers[0].get_data_set().training_set_labels
+        return classification_accuracy(self.classify(training_data, raw=True), labels)
+
+    def k_fold_cross_validation(self, k: int = 10) -> (float, float):
+        return k_fold_cross_validation(self, k)
+
+    def get_data_set(self) -> data.DataSet:
+        return self.classifiers[0].get_data_set()
+
+    def set_data_set(self, data_set: data.DataSet):
+        for classifier in self.classifiers:
+            classifier.get_data_set().set_training_set(data_set.raw_training_set, data_set.training_set_labels)
+            classifier.get_data_set().set_cross_validation_set(data_set.raw_cross_validation_set, data_set.cross_validation_labels)
+            classifier.get_data_set().set_test_set(data_set.raw_test_set, data_set.test_set_labels)
+
+    def apply_feature_scaling(self, feature_scaling_type: data.FeatureScalingType):
+        for classifier in self.classifiers:
+            classifier.get_data_set().apply_feature_scaling(feature_scaling_type)
+
+    def get_data_sets(self) -> [data.DataSet]:
+        data_sets = []
+        for classifier in self.classifiers:
+            data_sets.append(classifier.get_data_set())
+
+        return data_sets
 
 
 class LabelTranslator:

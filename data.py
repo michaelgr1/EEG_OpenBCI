@@ -1,3 +1,4 @@
+import copy
 import math
 from enum import Enum
 
@@ -228,6 +229,9 @@ class DataSet:
 
 		self.scaled_test_set = self.process_data(self.raw_test_set)
 
+	def copy(self):
+		return copy.deepcopy(self)
+
 	def set_training_set(self, training_set: np.ndarray, labels: np.ndarray):
 		if training_set is None:
 			self.raw_training_set = None
@@ -242,7 +246,7 @@ class DataSet:
 		if cross_validation_set is None:
 			self.raw_cross_validation_set = None
 			self.cross_validation_labels = None
-			self.scaled_training_set = None
+			self.scaled_cross_validation_set = None
 			return
 		self.raw_cross_validation_set = cross_validation_set
 		self.cross_validation_labels = labels
@@ -349,13 +353,31 @@ class DataSet:
 				return scaled_data
 
 	def raw_feature_matrix(self):
-		return np.vstack((self.raw_training_set, self.raw_cross_validation_set, self.raw_test_set))
+		result = None
+		if self.raw_training_set is not None:
+			result = self.raw_training_set
+
+		if self.raw_cross_validation_set is not None:
+			result = np.vstack((result, self.raw_cross_validation_set))
+
+		if self.raw_test_set is not None:
+			result = np.vstack((result, self.raw_test_set))
+		return result
 
 	def scaled_feature_matrix(self):
 		return self.feature_scalar.scale_feature_matrix(self.raw_feature_matrix())
 
 	def feature_matrix_labels(self):
-		return np.vstack((self.training_set_labels, self.cross_validation_labels, self.test_set_labels))
+		labels = None
+		if self.training_set_labels is not None:
+			labels = self.training_set_labels
+
+		if self.cross_validation_labels is not None:
+			labels = np.vstack((labels, self.cross_validation_labels))
+
+		if self.test_set_labels is not None:
+			labels = np.vstack((labels, self.test_set_labels))
+		return labels
 
 	def append_to(self, data: np.ndarray, labels: np.ndarray, target: DataSubSetType):
 		"""
