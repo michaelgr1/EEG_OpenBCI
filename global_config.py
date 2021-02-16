@@ -13,9 +13,9 @@ EEG_DATA_FILE_NAME = "eeg_data.csv"
 
 SLICE_INDEX_FILE_NAME = "slice_index.txt"
 
-RESONANCE_REFERENCE_FILE_NAME = "reference.csv"
-
 RESONANCE_DATA_FILE_NAME = "eeg_data.csv"
+
+FREQUENCY_INDEX_FILE_NAME = "frequency_index.txt"
 
 if BOARD_ID == BoardIds.SYNTHETIC_BOARD.value:
     print("*" * 40)

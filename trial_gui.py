@@ -566,6 +566,9 @@ class TrialConductor(QMainWindow):
 			self.sample_count + global_config.SAMPLING_RATE * self.configurations.trial_duration
 		)
 
+		# Updates the slice index every trial to avoid losing track on unexpected exit
+		self.slice_generator.write_to_file(self.configurations.root_directory)
+
 		self.class_image_pixmap.load(self.configurations.classes[index].image_path)
 		self.class_image_view.setPixmap(self.class_image_pixmap)
 		self.trial_count += 1

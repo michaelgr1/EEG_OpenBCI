@@ -1,0 +1,10 @@
+A format for saving data in the frequency_index_format.txt file which is produced by the resonance frequency finder.
+
+row 1 -> sampling rate
+row 2 -> frequency,first sample index,last sample index
+.
+.
+.
+
+
+for reference data use frequency of 0

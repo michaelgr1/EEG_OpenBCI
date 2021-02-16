@@ -58,7 +58,7 @@ class AccumulatingAverages:
 			self.sum = self.sum + values
 		self.count += 1
 
-	def compute_average(self) -> float:
+	def compute_average(self) -> np.ndarray:
 		if self.count == 0:
 			return 0
 		return self.sum / self.count
@@ -614,7 +614,7 @@ class SliceIndexGenerator:
 
 	def write_to_file(self, root_directory_path: str, append: bool = False):
 
-		with open(root_directory_path + f"/{global_config.SLICE_INDEX_FILE_NAME}", "a") as file:
+		with open(root_directory_path + f"/{global_config.SLICE_INDEX_FILE_NAME}", "w") as file:
 			if not append:
 				file.write(f"{self.sampling_rate}\n")
 				for trial_class in self.trial_classes:
@@ -690,6 +690,85 @@ def obtain_trial_length_from_slice_index(root_directory_path: str) -> float:
 	length_in_samples = end_index - start_index
 
 	return length_in_samples / sampling_rate
+
+
+class FrequencyIndexGenerator:
+
+	def __init__(self, sampling_rate: int):
+		self.sampling_rate = sampling_rate
+		self.slices = []  # Array with tuples of the form (float, int, int) -> (freq, first index, last index)
+
+	def add_slice(self, frequency: float, start_index, end_index):
+		self.slices.append((frequency, start_index, end_index))
+
+	def write_to_file(self, root_directory_path: str):
+		with open(root_directory_path + "/" + global_config.FREQUENCY_INDEX_FILE_NAME, "w") as file:
+			file.write(f"{self.sampling_rate}\n")
+			for slc in self.slices:
+				file.write(f"{slc[0]},{slc[1]},{slc[2]}\n")
+
+
+def load_slice_and_filter_resonance_data(root_directory: str,
+										filter_settings: FilterSettings) -> ([float], [EegData], EegData):
+	"""
+	Loads the eeg data recorded from a run of the resonance finder GUI.
+	The data should be formatted according to the specification in the frequency_index_format.txt
+	:param root_directory: the path to the root directory containing the files
+	:param filter_settings: Filters to be applied on the data
+	:return: A tuple containing a list of frequencies and another list with their corresponding eeg data objects.
+			and, an eeg data object for the reference data marked with frequency 0
+	"""
+
+	raw_eeg_data = DataFilter.read_file(root_directory + "/" + global_config.RESONANCE_DATA_FILE_NAME)
+
+	filtered_data = filter_settings.apply(raw_eeg_data)
+
+	index_file = open(root_directory + "/" + global_config.FREQUENCY_INDEX_FILE_NAME, "r")
+
+	line = index_file.readline()
+
+	sampling_rate = int(line)
+
+	frequencies = []
+	averages = []
+
+	while True:
+		line = index_file.readline()
+
+		if not line:
+			break
+
+		elements = line.split(",")
+
+		freq = float(elements[0])
+		start_index = int(elements[1])
+		end_index = int(elements[2])
+
+		current_filtered_data = filtered_data[:, start_index:end_index]
+
+		if freq in frequencies:
+			index = frequencies.index(freq)
+			current_average = averages[index]
+			current_average.add_values(current_filtered_data)
+		else:
+			average = AccumulatingAverages()
+			average.add_values(current_filtered_data)
+			frequencies.append(freq)
+			averages.append(average)
+
+	averaged_eeg_data = []
+	updated_frequencies = []
+
+	reference_data = EegData()
+
+	for i in range(0, len(frequencies)):
+		if frequencies[i] == 0:  # Reference data
+			reference_data = EegData(averages[i].compute_average())
+		else:
+			averaged_eeg_data.append(EegData(averages[i].compute_average()))
+			updated_frequencies.append(frequencies[i])
+
+	return updated_frequencies, averaged_eeg_data, reference_data
 
 
 def load_data(root_directories: [str]) -> [np.ndarray]:
