@@ -7,7 +7,7 @@ BOARD_ID = BoardIds.SYNTHETIC_BOARD.value
 
 SAMPLING_RATE = BoardShim.get_sampling_rate(BOARD_ID)
 
-IMAGES_SSD_DRIVER_LETTER = "F"
+IMAGES_SSD_DRIVER_LETTER = "E"
 
 EEG_DATA_FILE_NAME = "eeg_data.csv"
 

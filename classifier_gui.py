@@ -10,6 +10,7 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QWidget, QApplication, QCheckBox, QGridLayout, QMainWindow, QComboBox, QLabel, QPushButton, \
 	QLineEdit, QFileDialog, QHBoxLayout, QPlainTextEdit, QGroupBox, QRadioButton
 from brainflow.board_shim import BoardShim, BrainFlowInputParams
+from brainflow.data_filter import DataFilter
 from sklearn.decomposition import PCA
 
 import classification as cls
@@ -65,7 +66,7 @@ class ClassifierTrainer(QMainWindow):
 		self.trial_classes = []
 
 		self.root_directories = []
-		self.root_directories.append("F:\\EEG_GUI_OpenBCI\\eeg_recordings\\vibro_tactile_27_12_2020\\trial_02")
+		self.root_directories.append(global_config.IMAGES_SSD_DRIVER_LETTER + ":\\EEG_GUI_OpenBCI\\eeg_recordings\\vibro_tactile_27_12_2020\\trial_02")
 
 		self.root_widget = QWidget()
 		self.root_layout = QGridLayout()
@@ -812,7 +813,7 @@ class OnlineClassifierGui(QMainWindow):
 
 	CLASS_IMAGE_HEIGHT = 400
 
-	MENTAL_TASK_DELAY = 1000
+	MENTAL_TASK_DELAY = 5000
 
 	EV3_MAC_ADDRESS = "00:16:53:4f:bd:54"
 
@@ -838,6 +839,12 @@ class OnlineClassifierGui(QMainWindow):
 		self.feature_types = feature_types
 		self.trial_classes = trial_classes
 		self.config = config
+
+		self.slice_generator = utils.SliceIndexGenerator(global_config.SAMPLING_RATE, trial_classes)
+		self.sample_count = 0
+
+		self.trial_count = 0
+		self.correct_count = 0
 
 		self.INTERNAL_BUFFER_EXTRA_SIZE = self.INTERNAL_BUFFER_EXTRA_DURATION * self.feature_extraction_info.sampling_rate
 
@@ -885,6 +892,14 @@ class OnlineClassifierGui(QMainWindow):
 			self.robot_connect_btn, self.manual_control_checkbox
 		]), 1, 0, 1, 3)
 
+		self.root_directory_label = QLabel()
+		self.pick_root_directory_btn = QPushButton("Select/Change")
+		self.pick_root_directory_btn.clicked.connect(self.pick_root_directory)
+
+		self.root_layout.addWidget(utils.construct_horizontal_box([
+			QLabel("Root directory:"), self.root_directory_label, self.pick_root_directory_btn
+		]), 2, 0, 1, 3)
+
 		self.start_btn = QPushButton("Start Streaming")
 		self.start_btn.clicked.connect(self.start_clicked)
 		self.stop_btn = QPushButton("Stop Streaming")
@@ -892,16 +907,16 @@ class OnlineClassifierGui(QMainWindow):
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			self.stop_btn, self.start_btn
-		]), 2, 0, 1, 3)
+		]), 3, 0, 1, 3)
 
 		self.class_label = QLabel("Start stream to see result")
 		self.class_label.setAlignment(PyQt5.QtCore.Qt.AlignCenter)
 
-		self.root_layout.addWidget(self.class_label, 3, 0, 1, 3)
+		self.root_layout.addWidget(self.class_label, 4, 0, 1, 3)
 
 		self.root_layout.addWidget(utils.construct_horizontal_box([
 			QLabel("<h2>Mental Tasks:</h2>")
-		]), 4, 0, 1, 3)
+		]), 5, 0, 1, 3)
 
 		self.training_tasks_widget = QWidget()
 		self.training_tasks_layout = QHBoxLayout()
@@ -913,13 +928,13 @@ class OnlineClassifierGui(QMainWindow):
 			self.class_tiles_list.append(TrainingTaskTile(trial_class, self.CLASS_IMAGE_HEIGHT / 2))
 			self.training_tasks_layout.addWidget(self.class_tiles_list[-1])
 
-		self.root_layout.addWidget(self.training_tasks_widget, 5, 0, 1, 3)
+		self.root_layout.addWidget(self.training_tasks_widget, 6, 0, 1, 3)
 
 		self.class_pixmap = QPixmap()
 
 		self.log_textarea = QPlainTextEdit()
 
-		self.root_layout.addWidget(self.log_textarea, 6, 0, 1, 3)
+		self.root_layout.addWidget(self.log_textarea, 7, 0, 1, 3)
 
 		self.board = self.initialize_board()
 		self.board.prepare_session()
@@ -949,6 +964,10 @@ class OnlineClassifierGui(QMainWindow):
 	def connect_clicked(self):
 		self.ev3.connect()
 
+	def pick_root_directory(self):
+		path = QFileDialog.getExistingDirectory(self, "Select Root Directory...")
+		self.root_directory_label.setText(path)
+
 	def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
 		print("key pressed")
 		if self.manual_control_checkbox.isChecked():
@@ -976,18 +995,9 @@ class OnlineClassifierGui(QMainWindow):
 
 		self.log(f"Starting data stream, online training? {self.online_training}")
 
-		# if self.online_training:
-		# 	if type(self.classifier) == cls.LogisticRegressionClassifier:
-		# 		self.previous_cross_validation_accuracy = self.classifier.cross_validation_accuracy()
-		# 		self.previous_test_set_accuracy = self.classifier.test_set_accuracy()
-		# 	elif type(self.classifier) == cls.KNearestNeighborsClassifier:
-		# 		self.previous_cross_validation_accuracy = self.classifier.cross_validation_accuracy()
-		# 		self.previous_test_set_accuracy = self.classifier.test_set_accuracy()
-		# 	elif type(self.classifier) == cls.PerceptronClassifier:
-		# 		self.previous_cross_validation_accuracy = self.classifier.cross_validation_accuracy()
-		# 		self.previous_test_set_accuracy = self.classifier.test_set_accuracy()
-		# 	self.online_training_timer = QTimer()
-		# 	self.online_training_timer.singleShot(self.MENTAL_TASK_DELAY, self.next_mental_task)
+		if self.online_training:
+			self.online_training_timer = QTimer()
+			self.online_training_timer.singleShot(self.MENTAL_TASK_DELAY, self.next_mental_task)
 
 		self.initialize_data_buffer()
 
@@ -1009,45 +1019,25 @@ class OnlineClassifierGui(QMainWindow):
 			self.board.stop_stream()
 			self.reading_timer.deleteLater()
 			self.reading_timer = None
-			# if self.online_training:
-			# 	if self.online_training_timer is not None:
-			# 		self.online_training_timer.deleteLater()
-			# 		self.online_training_timer = None
-			#
-			# 	self.log("Retraining classifier...")
-			#
-			# 	if type(self.classifier) == cls.LogisticRegressionClassifier:
-			# 		self.classifier.train()
-			# 	elif type(self.classifier) == cls.KNearestNeighborsClassifier:
-			# 		self.log("No training for KNN...")
-			# 	elif type(self.classifier) == cls.PerceptronClassifier:
-			# 		self.classifier.train()
-			#
-			# 	self.log("Training over...")
-			#
-			# 	test_set_accuracy = -1
-			# 	cross_validation_set_accuracy = -1
-			#
-			# 	if type(self.classifier) == cls.LogisticRegressionClassifier:
-			# 		cross_validation_set_accuracy = self.classifier.cross_validation_accuracy()
-			# 		test_set_accuracy = self.classifier.test_set_accuracy()
-			# 	elif type(self.classifier) == cls.KNearestNeighborsClassifier:
-			# 		cross_validation_set_accuracy = self.classifier.cross_validation_accuracy()
-			# 		test_set_accuracy = self.classifier.test_set_accuracy()
-			# 	elif type(self.classifier) == cls.PerceptronClassifier:
-			# 		cross_validation_set_accuracy = self.classifier.cross_validation_accuracy()
-			# 		test_set_accuracy = self.classifier.test_set_accuracy()
-			#
-			# 	self.log(f"Cross validation accuracy: {100 * cross_validation_set_accuracy}%")
-			# 	self.log(f"Test set accuracy: {100 * test_set_accuracy}%")
-			#
-			# 	self.log(f"Cross validation accuracy change: {self.previous_cross_validation_accuracy - cross_validation_set_accuracy}")
-			# 	self.log(f"Test set accuracy change: {self.previous_test_set_accuracy - test_set_accuracy}")
+			self.slice_generator.write_to_file(self.root_directory_label.text())
+			if self.online_training:
+				if self.online_training_timer is not None:
+					self.online_training_timer.deleteLater()
+					self.online_training_timer = None
+					self.clear_highlight_tile()
+
+				self.log(f"Accuracy during online training: {self.correct_count / self.trial_count * 100}%")
+				print(f"Accuracy during online training: {self.correct_count / self.trial_count * 100}%")
 
 	def read_data(self):
 		if self.board.get_board_data_count() > 0:
 			raw_data = self.board.get_board_data()
 			raw_eeg_data = utils.extract_eeg_data(raw_data, global_config.BOARD_ID)
+
+			if self.root_directory_label.text() != "":
+				full_path = self.root_directory_label.text() + "/" + global_config.EEG_DATA_FILE_NAME
+				DataFilter.write_file(raw_eeg_data, full_path, "a")
+				self.slice_generator.write_to_file(self.root_directory_label.text())
 
 			# Make room for new samples, discard the oldest
 			self.data_buffer = np.roll(self.data_buffer, shift=-raw_eeg_data.shape[1], axis=1)
@@ -1058,6 +1048,7 @@ class OnlineClassifierGui(QMainWindow):
 			self.data_buffer[:, self.data_buffer.shape[1] - raw_eeg_data.shape[1]:] = raw_eeg_data[first_index:last_index, :]
 
 			self.samples_push_count += raw_eeg_data.shape[1]
+			self.sample_count += raw_eeg_data.shape[1]
 			if self.online_training and self.online_training_timer is None:
 				self.online_training_samples_push_count += raw_eeg_data.shape[1]
 
@@ -1070,11 +1061,13 @@ class OnlineClassifierGui(QMainWindow):
 				self.online_training_samples_push_count = 0
 				self.online_training_timer = QTimer()
 				self.online_training_timer.singleShot(self.MENTAL_TASK_DELAY, self.next_mental_task)
+				self.clear_highlight_tile()
 
-				for tile in self.class_tiles_list:
-					if tile.highlighted:
-						tile.disable_highlight()
-						break
+	def clear_highlight_tile(self):
+		for tile in self.class_tiles_list:
+			if tile.highlighted:
+				tile.disable_highlight()
+				break
 
 	def classify_data(self, online_training: bool = False):
 		filtered_data = self.filter_settings.apply(self.data_buffer[:, self.INTERNAL_BUFFER_EXTRA_SIZE:])
@@ -1098,15 +1091,18 @@ class OnlineClassifierGui(QMainWindow):
 		if online_training:
 			correct_label = self.current_mental_task.label
 
+			self.trial_count += 1
+
 			if label != correct_label:
 				self.log("Wrong classification!")
 			else:
 				self.log("Correct Classification")
+				self.correct_count += 1
 
-			self.classifier.get_data_set().append_to(feature_data, np.array([correct_label]), data.DataSubSetType.TRAINING)
+			# self.classifier.get_data_set().append_to(feature_data, np.array([correct_label]), data.DataSubSetType.TRAINING)
 			# TODO: Might block execution for too long
-			self.classifier.train()
-			self.log("Training accuracy: " + self.classifier.training_set_accuracy())
+			# self.classifier.train()
+			# self.log("Training accuracy: " + self.classifier.training_set_accuracy())
 
 		path = ""
 		for trial_class in self.trial_classes:
@@ -1133,6 +1129,10 @@ class OnlineClassifierGui(QMainWindow):
 
 	def next_mental_task(self):
 		self.current_mental_task = self.random_class()
+		print(f"Next mental task is {self.current_mental_task.name}")
+
+		self.slice_generator.add_slice(self.current_mental_task.label,
+				self.sample_count, self.sample_count + int(self.config.feature_window_size * self.feature_extraction_info.sampling_rate))
 
 		for tile in self.class_tiles_list:
 			if tile.trial_class == self.current_mental_task:
