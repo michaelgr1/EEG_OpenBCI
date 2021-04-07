@@ -221,7 +221,7 @@ class FeatureExtractor:
 				window_data = self.channel_data[start_index:end_index]
 
 				# TODO: Find out whether a window function should be used
-				amplitudes = abs(DataFilter.perform_fft(window_data[:window_length], WindowFunctions.HAMMING.value))
+				amplitudes = abs(DataFilter.perform_fft(window_data[:window_length], WindowFunctions.NO_WINDOW.value))
 				amplitudes = amplitudes * (1 / window_length)
 				fft_average.add_values(amplitudes)
 
@@ -1161,7 +1161,7 @@ def start_vibration(vibration_serial, left_frequency, right_frequency, left_powe
 		packet.append(left_power)
 		vibration_serial.write(packet)
 
-		time.sleep(0.1)
+		time.sleep(0.2)
 
 		# Send right command
 		packet = bytearray()

@@ -1,11 +1,13 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
+from brainflow import DataFilter
 from sklearn import svm
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.neural_network import MLPClassifier
 
 import data
+import global_config
 import performance
 import statistics
 import utils
@@ -124,6 +126,9 @@ class SimpleClassifier(ABC):
             accuracies.append(testing_accuracy)
 
         arr = np.array(accuracies)
+
+        DataFilter.write_file(arr.reshape((1, -1)),
+                              global_config.IMAGES_SSD_DRIVER_LETTER + ":/EEG_GUI_OpenBCI/eeg_recordings/repeated_k_fold/accuracies.csv", "w")
 
         return statistics.arithmetic_mean(arr), statistics.population_standard_deviation(arr)
 

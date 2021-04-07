@@ -32,8 +32,7 @@ AVAILABLE_CLASSIFIERS = [
 
 DEFAULT_VOTING_CLASSIFIERS = [
 	cls.LogisticRegressionClassifier.NAME,
-	cls.SvmClassifier.NAME,
-	cls.LdaClassifier.NAME
+	cls.SvmClassifier.NAME
 ]
 
 
@@ -505,7 +504,7 @@ class ClassifierTrainer(QMainWindow):
 		if self.classifier is not None:
 			k = int(self.k_fold_edit.text())
 
-			average, std = self.classifier.repeated_k_fold_cross_validation(k)
+			average, std = self.classifier.repeated_k_fold_cross_validation(k, self.DEFAULT_K_FOLD_REPETITIONS)
 
 			print("Average = {}, std = {}".format(average, std))
 
@@ -833,6 +832,13 @@ class OnlineClassifierGui(QMainWindow):
 		self.setWindowTitle("Online Classifier")
 		self.setWindowModality(PyQt5.QtCore.Qt.ApplicationModal)
 
+		# self.vibration_serial = serial.Serial(port=utils.vibration_port(), baudrate=115200, timeout=5000)
+		# if not self.vibration_serial.isOpen():
+		# 	print("Opening port")
+		# 	self.vibration_serial.open()
+		# else:
+		# 	print("Port is already open")
+
 		self.classifier = classifier
 		self.filter_settings = filter_settings
 		self.feature_extraction_info = feature_extraction_info
@@ -979,6 +985,11 @@ class OnlineClassifierGui(QMainWindow):
 				self.motor_control.forward(self.DEFAULT_ROBOT_SPEED)
 			elif event.key() == Qt.Key_S:
 				self.motor_control.backward(self.DEFAULT_ROBOT_SPEED)
+
+	def close(self) -> bool:
+		if self.vibration_serial.isOpen():
+			self.vibration_serial.close()
+		return super().close()
 
 	def start_clicked(self):
 

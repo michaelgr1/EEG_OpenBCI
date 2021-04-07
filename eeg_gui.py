@@ -607,7 +607,7 @@ def main():
 	pg.setConfigOption('background', 'w')
 	pg.setConfigOption('foreground', 'k')
 
-	window = MainWindow(app, board=board, screen_width=app.primaryScreen().size().width(), channel_count=5)
+	window = MainWindow(app, board=board, screen_width=app.primaryScreen().size().width(), channel_count=6)
 	window.show()
 
 	board.prepare_session()

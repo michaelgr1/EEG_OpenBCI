@@ -22,9 +22,11 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 	DEFAULT_GRAPH_PADDING = 2
 
-	DEFAULT_FFT_WINDOW_SIZE = 3
+	DEFAULT_FFT_WINDOW_SIZE = 5
 
-	DEFAULT_RECORDING_DURATION = 10
+	DEFAULT_SAMPLE_PADDING = 2
+
+	DEFAULT_RECORDING_DURATION = 30 + DEFAULT_SAMPLE_PADDING
 
 	DEFAULT_MIN_FREQUENCY = 17
 
@@ -35,15 +37,15 @@ class ResonanceFrequencyFinder(QMainWindow):
 	# Used to create a band for which the average frequency amplitude is computed
 	DEFAULT_FREQUENCY_PADDING = 0.2
 
-	DEFAULT_BANDPASS_MIN = 11
+	DEFAULT_BANDPASS_MIN = 8
 
 	DEFAULT_BANDPASS_MAX = 40
 
-	DEFAULT_C3_CHANNEL_INDEX = 5
+	DEFAULT_C3_CHANNEL_INDEX = 4
 
-	DEFAULT_CZ_CHANNEL_INDEX = 3
+	DEFAULT_CZ_CHANNEL_INDEX = 2
 
-	DEFAULT_C4_CHANNEL_INDEX = 1
+	DEFAULT_C4_CHANNEL_INDEX = 0
 
 	def __init__(self, board: BoardShim):
 		super().__init__()
@@ -78,7 +80,7 @@ class ResonanceFrequencyFinder(QMainWindow):
 		# self.window_size_combo_box = QComboBox()
 		# self.window_size_combo_box.addItems(self.AVAILABLE_WINDOW_SIZES)
 
-		self.root_directory_label = QLabel("Root Directory")
+		self.root_directory_label = QLabel()
 		self.select_root_directory = QPushButton("Select/Change")
 		self.select_root_directory.clicked.connect(self.pick_root_directory)
 
@@ -250,13 +252,18 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 			if self.recording_reference:
 				self.reference_eeg_data.append_data(raw_eeg_data)
+				print(f"reference size: {self.reference_eeg_data.sample_count()}")
 				self.recording_progress_dialog.setValue(self.reference_eeg_data.get_channel_data(0).shape[0])
 			else:
 				self.eeg_data_buffer.append_data(raw_eeg_data)
+				print(f"data size: {self.eeg_data_buffer.sample_count()}")
 				self.recording_progress_dialog.setValue(self.eeg_data_buffer.get_channel_data(0).shape[0])
 
 	def load_existing_data(self):
 		path = QFileDialog.getExistingDirectory(self, "Root Directory...")
+
+		if path == "":
+			return
 
 		filter_settings = utils.FilterSettings(global_config.SAMPLING_RATE, self.DEFAULT_BANDPASS_MIN, self.DEFAULT_BANDPASS_MAX)
 
@@ -339,6 +346,7 @@ class ResonanceFrequencyFinder(QMainWindow):
 		c4_diff = data_c4_amplitude - ref_c4_amplitude
 
 		return c3_diff, cz_diff, c4_diff
+		# return data_c3_amplitude, data_cz_amplitude, data_c4_amplitude
 
 	def stop_recording(self, reference: bool = False):
 		if self.reading_timer is not None:
@@ -354,21 +362,28 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 		if reference:
 			sample_count = min(self.reference_eeg_data.get_channel_data(0).shape[0], recording_duration_in_samples)
+			sample_count -= global_config.SAMPLING_RATE * self.DEFAULT_SAMPLE_PADDING
 			self.index_generator.add_slice(0, self.eeg_sample_count - sample_count, self.eeg_sample_count)
 		else:
 			sample_count = min(self.eeg_data_buffer.get_channel_data(0).shape[0], recording_duration_in_samples)
+			sample_count -= global_config.SAMPLING_RATE * self.DEFAULT_SAMPLE_PADDING
 			self.index_generator.add_slice(selected_freq, self.eeg_sample_count - sample_count, self.eeg_sample_count)
 
-		self.index_generator.write_to_file(self.root_directory_label.text())
+		if self.root_directory_label.text() != "":
+			self.index_generator.write_to_file(self.root_directory_label.text())
 
 		QApplication.beep()
 
+		start = self.DEFAULT_SAMPLE_PADDING * global_config.SAMPLING_RATE
+
 		if reference:
+			print(f"reference size: {self.reference_eeg_data.sample_count()}")
 			self.record_btn.setEnabled(True)
 			# self.record_reference_btn.setEnabled(False)
 			self.reference_eeg_data.filter_all_channels(
 				global_config.SAMPLING_RATE, self.DEFAULT_BANDPASS_MIN, self.DEFAULT_BANDPASS_MAX, True
 			)
+			self.reference_eeg_data = utils.EegData(self.reference_eeg_data.to_row_array()[:, start:])
 			print("Reference data saved...")
 		else:
 			print("Stopping the recording...")
@@ -378,6 +393,10 @@ class ResonanceFrequencyFinder(QMainWindow):
 			self.eeg_data_buffer.filter_all_channels(
 				global_config.SAMPLING_RATE, self.DEFAULT_BANDPASS_MIN, self.DEFAULT_BANDPASS_MAX, subtract_average=True
 			)
+
+			self.eeg_data_buffer = utils.EegData(self.eeg_data_buffer.to_row_array()[:, start:])
+
+			print(f"data size: {self.eeg_data_buffer.sample_count()}")
 
 			reference_c3_extractor = self.reference_eeg_data.feature_extractor(
 				self.DEFAULT_C3_CHANNEL_INDEX, global_config.SAMPLING_RATE
@@ -412,6 +431,10 @@ class ResonanceFrequencyFinder(QMainWindow):
 
 					c3_diff, cz_diff, c4_diff = self.amplitude_diff(freq_band, reference_c3_extractor,reference_cz_extractor, reference_c4_extractor,
 																	data_c3_extractor, data_cz_extractor, data_c4_extractor)
+
+					print(f"C3 diff = {c3_diff}")
+					print(f"Cz diff = {cz_diff}")
+					print(f"C4 diff = {c4_diff}")
 
 					self.c3_amplitude_bar_set.replace(i, c3_diff)
 					self.cz_amplitude_bar_set.replace(i, cz_diff)
